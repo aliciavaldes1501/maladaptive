@@ -1,0 +1,868 @@
+---
+title: "Cerastium 2: Maladaptive plastic responses"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r load packages, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(knitr)
+library(gridExtra)
+library(DHARMa)
+library(RColorBrewer)
+library(broom)
+library(ggpubr)
+library(jtools)
+library(kableExtra)
+library(ggeffects)
+library(MuMIn)
+library(MASS)
+library(segmented)
+library(effects)
+library(purrr)
+library(lubridate)
+library(ggforce)
+library(lmtest)
+library(car)
+```
+
+```{r Define ggplot themes and palettes, include=FALSE}
+my_theme <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(legend.position="none")+theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+my_theme_legend <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+myPalette <- colorRampPalette(brewer.pal(11, "YlOrRd"))
+```
+
+```{r, include=FALSE}
+set_summ_defaults(digits = 3)
+```
+
+```{r function to check for overdispersion, include=FALSE}
+overdisp_fun <- function(model) {
+    rdf <- df.residual(model)
+    rp <- residuals(model,type="pearson")
+    Pearson.chisq <- sum(rp^2)
+    prat <- Pearson.chisq/rdf
+    pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+    c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+```
+
+```{r load previously saved objects}
+load("C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2017.RData")
+load("C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2018.RData")
+load("C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2017_abs.RData")
+load("C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2018_abs.RData")
+
+```
+
+
+# Data preparation
+
+Load data, keep variables needed and merge
+
+```{r Load data}
+data_2017<-read.table("C:/Users/User/Dropbox/SU/Projects/cerastium_2/data/edited/Cerastium2017_AV.csv",header=T,sep=",",dec=".") 
+data_2018<-read.table("C:/Users/User/Dropbox/SU/Projects/cerastium_2/data/edited/Cerastium2018_AV.csv",header=T,sep=",",dec=".") 
+data_2017<-subset(data_2017,INCLUDE==1)[c(1:5,7)]
+data_2018<-subset(data_2018,INCLUDE==1)[c(1:4,7,9)]
+names(data_2017)<-c("id","id_original","temp","ffd","nfl","nseed")
+names(data_2018)<-c("id","id_original","temp","ffd","nfl","nseed")
+data_2017$year<-"2017"
+data_2018$year<-"2018"
+data_2017$ffd_std<-scale(data_2017$ffd)
+data_2017$nfl_std<-scale(log(data_2017$nfl)) # First log, then standardized
+data_2017$nseed_rel<-with(data_2017,nseed/mean(nseed))
+data_2018$ffd_std<-scale(data_2018$ffd)
+data_2018$nfl_std<-scale(log(data_2018$nfl)) # First log, then standardized
+data_2018$nseed_rel<-with(data_2018,nseed/mean(nseed))
+mydata<-rbind(data_2017,data_2018)
+mydata$id<-as.factor(mydata$id)
+mydata$year<-as.factor(mydata$year)
+head(mydata)
+```
+
+```{r include=FALSE}
+sum(is.na(mydata))
+```
+
+# Distributions
+
+Histograms
+
+```{r fig.height=4, fig.width=7}
+pivot_longer(mydata,cols=3:6) %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ name, scales = "free") +
+    geom_histogram(fill="white", color="black")
+```
+
+Histograms by year
+
+```{r fig.height=4, fig.width=7}
+pivot_longer(mydata,cols=3:6) %>% 
+  ggplot(aes(x=value,fill=year,color=year)) +
+    facet_wrap(~ name, scales = "free") +
+    geom_histogram(alpha=0.5)
+```
+
+QQplots
+
+```{r fig.height=5, fig.width=7}
+ggqqplot(mydata[3:7], x = c("ffd", "nfl", "nseed", "temp"),
+         combine = TRUE,scales="free")
+```
+
+QQplots by year
+
+```{r fig.height=5.5, fig.width=7}
+ggqqplot(mydata[3:7], x = c("ffd", "nfl", "nseed", "temp"),color="year",
+         combine = TRUE,scales="free")
+```
+
+# 1. Effect of temperature on FFD
+
+## Models as fit by Johan
+
+### Only linear
+
+```{r echo=TRUE}
+FFD_2017_1<-lm(ffd~temp+log(nfl),subset(mydata,year==2017))
+summ(FFD_2017_1,vif=T,scale=T) # scale=T reports standardized coefs
+FFD_2018_1<-lm(ffd~temp+log(nfl),subset(mydata,year==2018))
+summ(FFD_2018_1,vif=T,scale=T) # scale=T reports standardized coefs
+```
+
+Similar results. I guess it is good to include number of flowers to evaluate the effect of temperature on phenology independent of number of flowers. But we didn't do that in the GCB paper.
+
+Questions: Try models without number of flowers? (also significant effects of temperature) Do we need to take log of number of flowers? Should we report standardized estimates (i.e. with scaled predictors)?
+
+Models without number of flowers
+
+```{r echo=TRUE}
+FFD_2017_2<-lm(ffd~temp,subset(mydata,year==2017))
+summ(FFD_2017_2,scale=T)
+FFD_2018_2<-lm(ffd~temp,subset(mydata,year==2018))
+summ(FFD_2018_2,scale=T)
+```
+
+Models with number of flowers, untransformed
+
+```{r echo=TRUE}
+FFD_2017_3<-lm(ffd~temp+nfl,subset(mydata,year==2017))
+summ(FFD_2017_3,vif=T,scale=T)
+FFD_2018_3<-lm(ffd~temp+nfl,subset(mydata,year==2018))
+summ(FFD_2018_3,vif=T,scale=T)
+```
+
+#### Model diagnostics
+
+```{r}
+simulationOutput_FFD_2017_1<-simulateResiduals(fittedModel=FFD_2017_1,
+                                               n=5000)
+simulationOutput_FFD_2018_1<-simulateResiduals(fittedModel=FFD_2018_1,
+                                               n=5000)
+simulationOutput_FFD_2017_2<-simulateResiduals(fittedModel=FFD_2017_2,
+                                               n=5000)
+simulationOutput_FFD_2018_2<-simulateResiduals(fittedModel=FFD_2018_2,
+                                               n=5000)
+simulationOutput_FFD_2017_3<-simulateResiduals(fittedModel=FFD_2017_3,
+                                               n=5000)
+simulationOutput_FFD_2018_3<-simulateResiduals(fittedModel=FFD_2018_3,
+                                               n=5000)
+```
+
+FFD_2017_1
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_FFD_2017_1)
+```
+
+Residuals against temp
+
+```{r fig.height=4, fig.width=7}
+plotResiduals(simulationOutput_FFD_2017_1,
+     form = subset(mydata,year==2017)$temp)
+```
+
+Residuals against log(nfl)
+
+```{r fig.height=4, fig.width=7}
+plotResiduals(simulationOutput_FFD_2017_1,
+     form = log(subset(mydata,year==2017)$nfl))
+```
+Heteroskedasticity problem: Construct heteroskedasticity consistent standard errors, or robust standard errors (White’s standard errors)
+
+```{r}
+coeftest(FFD_2017_1, vcov. = hccm(FFD_2017_1, type = "hc0"))
+```
+
+FFD_2017_2
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_FFD_2017_2)
+```
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_FFD_2017_3)
+```
+
+Residuals against temp
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_FFD_2017_3,
+     form = subset(mydata,year==2017)$temp)
+```
+
+Residuals against nfl
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_FFD_2017_3,
+     form = subset(mydata,year==2017)$nfl)
+```
+
+2018:
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_FFD_2018_1)
+```
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_FFD_2018_2)
+```
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_FFD_2018_3)
+```
+
+If using models nr 1 for both 2017 and 2018, calculate BCa intervals at least for 2017, where there is heterokedasticity.
+
+##### BCa intervals for 2017
+
+```{r eval=FALSE, include=FALSE}
+# temp
+slp <- function(FFD_2017_1) coef(FFD_2017_1)[2]
+b <- car::Boot(FFD_2017_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_ffd_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# log(nfl)
+slp <- function(FFD_2017_1) coef(FFD_2017_1)[3]
+b <- car::Boot(FFD_2017_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_ffd_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# Save confidence intervals as a table
+BCIs_FFD_2017_1 <- cbind(
+  rbind(temp_ci_ffd_17[1,] ,nfl_ci_ffd_17[1,]),
+  rbind(temp_ci_ffd_17[2,] ,nfl_ci_ffd_17[2,])
+  )
+colnames(BCIs_FFD_2017_1)<-c("lower","upper")
+rownames(BCIs_FFD_2017_1) <- c("temp","lognfl")
+save(BCIs_FFD_2017_1,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_FFD_2017_1.RData")
+```
+
+```{r}
+BCIs_FFD_2017_1
+```
+Both are "significant" according to BCa intervals.
+
+#### Plots
+
+Raw data
+
+```{r fig.height=4, fig.width=7}
+ggplot(mydata,aes(x=temp,y=ffd))+geom_point()+
+  facet_wrap(~year,scales="free")+
+  xlab("Temperature (ºC)")+ylab("FFD")+my_theme()
+```
+
+Model predictions
+
+```{r fig.height=4, fig.width=4}
+predict_FFD_2017_1<-ggpredict(FFD_2017_1,terms = "temp [all]")
+predict_FFD_2018_1<-ggpredict(FFD_2018_1,terms = "temp [all]")
+
+ggplot()+
+  geom_ribbon(data=predict_FFD_2017_1,
+              aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+              fill="#F8766D",alpha=0.5)+
+  geom_line(data=predict_FFD_2017_1,aes(x=x,y=predicted),size=1,color="#F8766D")+
+  geom_ribbon(data=predict_FFD_2018_1,
+              aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+              fill="#00BFC4",alpha=0.5)+
+  geom_line(data=predict_FFD_2018_1,aes(x=x,y=predicted),size=1,color="#00BFC4")+
+  xlab("Temperature (ºC)")+ylab("Predicted FFD")+my_theme()
+```
+
+Raw data + model predictions
+
+```{r fig.height=4, fig.width=7}
+grid.arrange(
+  ggplot(subset(mydata,year==2017),aes(x=temp,y=ffd))+
+    xlab("Temperature (ºC)")+ylab("FFD")+my_theme()+
+    geom_ribbon(data=predict_FFD_2017_1,
+                aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+                fill="#F8766D",alpha=0.5)+
+    geom_line(data=predict_FFD_2017_1,
+              aes(x=x,y=predicted),size=1,color="#F8766D")+
+    geom_point(),
+  ggplot(subset(mydata,year==2018),aes(x=temp,y=ffd))+geom_point()+
+    xlab("Temperature (ºC)")+ylab("FFD")+my_theme()+
+    geom_ribbon(data=predict_FFD_2018_1,
+                aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+                fill="#00BFC4",alpha=0.5)+
+    geom_line(data=predict_FFD_2018_1,
+              aes(x=x,y=predicted),size=1,color="#00BFC4")+
+    geom_point(),
+  ncol=2)
+```
+
+### Quadratic
+
+```{r echo=TRUE}
+FFD_2017_quad<-lm(ffd~temp+I(temp^2)+log(nfl),subset(mydata,year==2017))
+summ(FFD_2017_quad)
+FFD_2018_quad<-lm(ffd~temp+I(temp^2)+log(nfl),subset(mydata,year==2018))
+summ(FFD_2018_quad)
+```
+
+Quadratic terms for temperature are not significant.
+
+## Piecewise regresssion
+
+```{r echo=TRUE}
+FFD_2017_segm<-segmented(FFD_2017_1,seg.Z=~temp,psi=20)
+slope(FFD_2017_segm)
+AIC(FFD_2017_1,FFD_2017_segm)
+```
+
+CIs for the slope of the second segment include zero (means it is not significantly different from zero?). Very little difference in AIC (\<2), so the piecewise regression is not better.
+
+```{r echo=TRUE}
+FFD_2018_segm<-segmented(FFD_2018_1,seg.Z=~temp,psi=15)
+slope(FFD_2018_segm)
+AIC(FFD_2018_1,FFD_2018_segm)
+```
+
+CIs for the slope of the second segment include zero (means it is not significantly different from zero?). Difference in AIC \>2 so the piecewise regression seems to be better.
+
+### Plot 2018
+
+```{r fig.height=4, fig.width=4}
+ggplot(subset(mydata,year==2018),aes(x=temp,y=ffd))+my_theme()+
+  geom_ribbon(data=predict_FFD_2018_1,
+              aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+                fill="#00BFC4",alpha=0.5)+
+  geom_line(data=predict_FFD_2018_1,
+            aes(x=x,y=predicted),size=1,color="#00BFC4")+
+  geom_ribbon(data=subset(mydata,year==2018),
+              aes(x=temp,y=broken.line(FFD_2018_segm)$fit,
+                  ymin=broken.line(FFD_2018_segm)$fit-broken.line(FFD_2018_segm)$se.fit,
+                  ymax=broken.line(FFD_2018_segm)$fit+broken.line(FFD_2018_segm)$se.fit),
+              fill="grey",alpha=0.5)+
+  geom_line(data=subset(mydata,year==2018),aes(x=temp,y=broken.line(FFD_2018_segm)$fit),
+            size=1,color="darkgrey")+
+  geom_point()+xlab("Temperature (ºC)")+ylab("FFD")
+```
+
+I would probably keep the linear model, as the piecewise one does not seem to fit much better (the reduction in AIC was also small).
+
+# 2. Effect of temperature on fitness
+
+## Models as fit by Johan
+
+### Only linear
+
+```{r echo=TRUE}
+fitness_2017<-lm(nseed~temp+log(nfl),subset(mydata,year==2017))
+summ(fitness_2017,vif=T)
+fitness_2018<-lm(nseed~temp+log(nfl),subset(mydata,year==2018))
+summ(fitness_2018,vif=T)
+```
+
+#### Model diagnostics
+
+```{r}
+simulationOutput_fitness_2017<-simulateResiduals(fittedModel=fitness_2017,n=5000)
+simulationOutput_fitness_2018<-simulateResiduals(fittedModel=fitness_2018,n=5000)
+```
+
+qq-plot and plot of residuals vs. predicted:
+
+2017:
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_fitness_2017)
+```
+
+2018:
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_fitness_2018)
+```
+
+Quite bad looking! We should try another distribution.
+
+### Quadratic
+
+```{r echo=TRUE}
+fitness_2017_quad<-lm(nseed~temp+I(temp^2)+log(nfl),subset(mydata,year==2017))
+summ(fitness_2017_quad)
+fitness_2018_quad<-lm(nseed~temp+I(temp^2)+log(nfl),subset(mydata,year==2018))
+summ(fitness_2018_quad)
+```
+
+Quadratic terms for temperature are not significant.
+
+## GLMs with poisson distribution
+
+```{r echo=TRUE}
+fitness_2017_pois<-glm(round(nseed)~temp+log(nfl),subset(mydata,year==2017),family="poisson")
+summ(fitness_2017_pois,vif=T)
+fitness_2018_pois<-glm(round(nseed)~temp+log(nfl),subset(mydata,year==2018),family="poisson")
+summ(fitness_2018_pois,vif=T)
+```
+
+```{r echo=TRUE}
+overdisp_fun(fitness_2017_pois) 
+overdisp_fun(fitness_2018_pois)
+```
+
+There is significant overdispersion.
+
+## GLMs with negative binomial distribution --> Keep these?
+
+```{r echo=TRUE}
+fitness_2017_nb<-glm.nb(round(nseed)~temp+log(nfl),subset(mydata,year==2017))
+summ(fitness_2017_nb,vif=T)
+fitness_2018_nb<-glm.nb(round(nseed)~temp+log(nfl),subset(mydata,year==2018))
+summ(fitness_2018_nb,vif=T)
+```
+
+### Model diagnostics
+
+```{r}
+simulationOutput_fitness_2017_nb<-simulateResiduals(fittedModel=fitness_2017_nb,n=5000)
+simulationOutput_fitness_2018_nb<-simulateResiduals(fittedModel=fitness_2018_nb,n=5000)
+```
+
+qq-plot and plot of residuals vs. predicted:
+
+2017:
+
+```{r echo=FALSE, fig.height=4, fig.width=7}
+plot(simulationOutput_fitness_2017_nb)
+```
+
+2018:
+
+```{r echo=FALSE, fig.height=4, fig.width=7}
+plot(simulationOutput_fitness_2018_nb)
+```
+
+Some problems but maybe not so bad. Need to look a bit more into this later.
+
+### Plots
+
+Graphs of raw data
+
+```{r fig.height=3.5, fig.width=7}
+ggplot(mydata,aes(x=temp,y=nseed))+geom_point()+facet_wrap(~year,scales="free")+
+  xlab("Temperature (ºC)")+ylab("Fitness")+my_theme()
+```
+
+Graphs of model predictions (negative binomial GLMs)
+
+```{r fig.height=3.5, fig.width=4, message=FALSE, warning=FALSE}
+predict_fitness_2017_nb<-ggpredict(fitness_2017_nb,terms = "temp [all]")
+predict_fitness_2018_nb<-ggpredict(fitness_2018_nb,terms = "temp [all]")
+
+ggplot()+
+  geom_ribbon(data=predict_fitness_2017_nb,aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+              fill="#F8766D",alpha=0.5)+
+  geom_line(data=predict_fitness_2017_nb,aes(x=x,y=predicted),size=1,color="#F8766D")+
+  geom_ribbon(data=predict_fitness_2018_nb,aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+              fill="#00BFC4",alpha=0.5)+
+  geom_line(data=predict_fitness_2018_nb,aes(x=x,y=predicted),size=1,color="#00BFC4")+
+  xlab("Temperature (ºC)")+ylab("Predicted fitness")+my_theme()
+```
+
+Raw data + model predictions
+
+```{r fig.height=3.5, fig.width=7}
+grid.arrange(
+  ggplot(subset(mydata,year==2017),aes(x=temp,y=nseed))+
+     geom_ribbon(data=predict_fitness_2017_nb,
+                 aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+                 fill="#F8766D",alpha=0.5)+
+    geom_line(data=predict_fitness_2017_nb,
+              aes(x=x,y=predicted),size=1,color="#F8766D")+geom_point()+
+    xlab("Temperature (ºC)")+ylab("Fitness")+my_theme(),
+  ggplot(subset(mydata,year==2018),aes(x=temp,y=nseed))+
+    geom_ribbon(data=predict_fitness_2018_nb,
+                aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+                fill="#00BFC4",alpha=0.5)+
+    geom_line(data=predict_fitness_2018_nb,
+              aes(x=x,y=predicted),size=1,color="#00BFC4")+geom_point()+
+    xlab("Temperature (ºC)")+ylab("Fitness")+my_theme(),
+  ncol=2)
+```
+
+# 3. Effect of temperature on selection on FFD
+
+## Models as fit by Johan
+
+### Only linear
+
+```{r echo=TRUE}
+selection_2017<-lm(nseed_rel~ffd_std*temp+nfl_std,subset(mydata,year==2017))
+summ(selection_2017)
+selection_2018<-lm(nseed_rel~ffd_std*temp+nfl_std,subset(mydata,year==2018))
+summ(selection_2018)
+```
+
+#### Model diagnostics
+
+```{r}
+simulationOutput_selection_2017<-simulateResiduals(fittedModel=selection_2017,n=5000)
+simulationOutput_selection_2018<-simulateResiduals(fittedModel=selection_2018,n=5000)
+```
+
+qq-plot and plot of residuals vs. predicted:
+
+2017:
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_selection_2017)
+```
+
+2018:
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_selection_2018)
+```
+
+Quite bad looking! If we want to keep the linear model with normal distribution (i.e. a "classic" selection model), we can assess significances using BCa intervals.
+
+#### BCa intervals
+
+##### 2017
+
+```{r eval=FALSE, include=FALSE}
+# ffd_std
+slp <- function(selection_2017) coef(selection_2017)[2]
+b <- car::Boot(selection_2017,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_std_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# temp
+slp <- function(selection_2017) coef(selection_2017)[3]
+b <- car::Boot(selection_2017,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# nfl
+slp <- function(selection_2017) coef(selection_2017)[4]
+b <- car::Boot(selection_2017,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# ffd_std:temp
+slp <- function(selection_2017) coef(selection_2017)[5]
+b <- car::Boot(selection_2017,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_std_temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# Save confidence intervals as a table
+BCIs_selection_2017 <- cbind(
+  rbind(ffd_std_ci_17[1,] ,temp_ci_17[1,], nfl_ci_17[1,], ffd_std_temp_ci_17[1,]),
+  rbind(ffd_std_ci_17[2,] ,temp_ci_17[2,], nfl_ci_17[2,], ffd_std_temp_ci_17[2,])
+)
+colnames(BCIs_selection_2017)<-c("lower","upper")
+rownames(BCIs_selection_2017) <- c("ffd_std","temp","nfl_std","ffd_std:temp")
+save(BCIs_selection_2017,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2017.RData")
+```
+
+```{r}
+BCIs_selection_2017
+```
+
+##### 2018
+
+```{r eval=FALSE, include=FALSE}
+# ffd_std
+slp <- function(selection_2018) coef(selection_2018)[2]
+b <- car::Boot(selection_2018,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_std_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# temp
+slp <- function(selection_2018) coef(selection_2018)[3]
+b <- car::Boot(selection_2018,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# nfl
+slp <- function(selection_2018) coef(selection_2018)[4]
+b <- car::Boot(selection_2018,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# ffd_std:temp
+slp <- function(selection_2018) coef(selection_2018)[5]
+b <- car::Boot(selection_2018,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_std_temp_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# Save confidence intervals as a table
+BCIs_selection_2018 <- cbind(
+  rbind(ffd_std_ci_18[1,] ,temp_ci_18[1,], nfl_ci_18[1,], ffd_std_temp_ci_18[1,]),
+  rbind(ffd_std_ci_18[2,] ,temp_ci_18[2,], nfl_ci_18[2,], ffd_std_temp_ci_18[2,])
+)
+colnames(BCIs_selection_2018)<-c("lower","upper")
+rownames(BCIs_selection_2018) <- c("ffd_std","temp","nfl_std","ffd_std:temp")
+save(BCIs_selection_2018,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2018.RData")
+```
+
+```{r}
+BCIs_selection_2018
+```
+
+The significances according to the BCa intervals are similar to the ones given in the model summary.
+
+#### Plot 2018
+
+```{r fig.height=3.5, fig.width=6, message=FALSE, warning=FALSE}
+interaction1<-data.frame(effect(term="ffd_std:temp",mod=selection_2018,
+                       xlevels=list(ffd_std=seq(-2.1,2.3,0.1),
+                                    temp=seq(3,34,0.5))))
+myPalette <- colorRampPalette(brewer.pal(9, "YlOrRd"))
+ggplot(interaction1, aes(ffd_std,fit, group = as.factor(temp)))+
+  geom_smooth(method=lm,se=F,size=0.5,aes(ffd_std,fit,color=temp))+
+  xlab("Standardized FFD")+ylab("Relative number of seeds")+
+  my_theme()+scale_colour_gradientn(colours = myPalette(100))+
+  theme(legend.position="right")+labs(colour="Soil temperature (ªC)")
+```
+
+### Quadratic
+
+```{r echo=TRUE}
+selection_2017_quad<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2)+nfl_std,subset(mydata,year==2017))
+summ(selection_2017_quad)
+selection_2018_quad<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2)+nfl_std,subset(mydata,year==2018))
+summ(selection_2018_quad)
+```
+
+# 4. Effect of temperature on the relationship absolute fitness-FFD
+
+## Models as fit by Johan
+
+### Only linear
+
+```{r echo=TRUE}
+selection_2017_abs<-lm(nseed~ffd*temp+log(nfl),subset(mydata,year==2017))
+summ(selection_2017_abs)
+selection_2018_abs<-lm(nseed~ffd*temp+log(nfl),subset(mydata,year==2018))
+summ(selection_2018_abs)
+```
+
+#### Model diagnostics
+
+```{r}
+simulationOutput_selection_2017_abs<-simulateResiduals(fittedModel=selection_2017_abs,
+                                                       n=5000)
+simulationOutput_selection_2018_abs<-simulateResiduals(fittedModel=selection_2018_abs,
+                                                       n=5000)
+```
+
+qq-plot and plot of residuals vs. predicted:
+
+2017:
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_selection_2017_abs)
+```
+2018:
+
+```{r fig.height=4, fig.width=7}
+plot(simulationOutput_selection_2018_abs)
+```
+
+Quite bad looking! If we want to keep the linear model with normal distribution (i.e. a "classic" selection model), we can assess significances using BCa intervals.
+
+#### BCa intervals
+
+##### 2017
+
+```{r eval=FALSE, include=FALSE}
+# ffd
+slp <- function(selection_2017_abs) coef(selection_2017_abs)[2]
+b <- car::Boot(selection_2017_abs,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# temp
+slp <- function(selection_2017_abs) coef(selection_2017_abs)[3]
+b <- car::Boot(selection_2017_abs,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# nfl
+slp <- function(selection_2017_abs) coef(selection_2017_abs)[4]
+b <- car::Boot(selection_2017_abs,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# ffd:temp
+slp <- function(selection_2017_abs) coef(selection_2017_abs)[5]
+b <- car::Boot(selection_2017_abs,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# Save confidence intervals as a table
+BCIs_selection_2017_abs <- cbind(
+  rbind(ffd_ci_17_abs[1,] ,temp_ci_17_abs[1,], nfl_ci_17_abs[1,],
+        ffd_temp_ci_17_abs[1,]),
+  rbind(ffd_ci_17_abs[2,] ,temp_ci_17_abs[2,], nfl_ci_17_abs[2,], ffd_temp_ci_17_abs[2,])
+  )
+colnames(BCIs_selection_2017_abs)<-c("lower","upper")
+rownames(BCIs_selection_2017_abs) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2017_abs,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2017_abs.RData")
+```
+
+```{r}
+BCIs_selection_2017_abs
+```
+
+##### 2018
+
+```{r eval=FALSE, include=FALSE}
+# ffd
+slp <- function(selection_2018_abs) coef(selection_2018_abs)[2]
+b <- car::Boot(selection_2018_abs,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# temp
+slp <- function(selection_2018_abs) coef(selection_2018_abs)[3]
+b <- car::Boot(selection_2018_abs,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# nfl
+slp <- function(selection_2018_abs) coef(selection_2018_abs)[4]
+b <- car::Boot(selection_2018_abs,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# ffd:temp
+slp <- function(selection_2018_abs) coef(selection_2018_abs)[5]
+b <- car::Boot(selection_2018_abs,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r eval=FALSE, include=FALSE}
+# Save confidence intervals as a table
+BCIs_selection_2018_abs <- cbind(
+  rbind(ffd_ci_18_abs[1,] ,temp_ci_18_abs[1,], nfl_ci_18_abs[1,],
+        ffd_temp_ci_18_abs[1,]),
+  rbind(ffd_ci_18_abs[2,] ,temp_ci_18_abs[2,], nfl_ci_18_abs[2,],
+        ffd_temp_ci_18_abs[2,])
+)
+colnames(BCIs_selection_2018_abs)<-c("lower","upper")
+rownames(BCIs_selection_2018_abs) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2018_abs,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2018_abs.RData")
+```
+
+```{r}
+BCIs_selection_2018_abs
+```
+
+The significances according to the BCa intervals are similar to the ones given in the model summary, with the exception that according to the BCa intervals ffd is significant in the model for 2017.
+
+#### Plot 2018
+
+```{r fig.height=3.5, fig.width=6, message=FALSE, warning=FALSE}
+interaction2<-data.frame(effect(term="ffd:temp",mod=selection_2018_abs,
+                       xlevels=list(ffd_std=seq(153,214,1),
+                                    temp=seq(3,34,0.5))))
+ggplot(interaction2, aes(ffd,fit, group = as.factor(temp)))+
+  geom_smooth(method=lm,se=F,size=0.5,aes(ffd,fit,color=temp))+
+  xlab("FFD")+ylab("Number of seeds")+
+  my_theme()+scale_colour_gradientn(colours = myPalette(100))+
+  theme(legend.position="right")+labs(colour="Soil temperature (ªC)")
+```
+
+We could also try this model with other distributions (Poisson, negative binomial), but I guess that keeping the "classic" approach with a normal distribution is OK if we show BCa intervals.
+
