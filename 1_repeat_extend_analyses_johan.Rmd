@@ -1,7 +1,10 @@
 ---
-title: "Cerastium 2: Maladaptive plastic responses"
+title: "Maladaptive plastic responses of flowering time to geothermal heating (Cerastium 2)"
+subtitle: "Repeat and extend analyses done by Johan"
+author : "Alicia Valdés"
 output:
   pdf_document:
+    latex_engine: xelatex
     toc: yes
     toc_depth: 4
 editor_options:
@@ -66,21 +69,22 @@ overdisp_fun <- function(model) {
 ```
 
 ```{r load previously saved objects}
-load("C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2017.RData")
-load("C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2018.RData")
-load("C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2017_abs.RData")
-load("C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2018_abs.RData")
-
+load("output/BCIs_selection_2017.RData")
+load("output/BCIs_selection_2018.RData")
+load("output/BCIs_selection_2017_abs.RData")
+load("output/BCIs_selection_2018_abs.RData")
+load("output/BCIs_FFD_2017_1.RData")
 ```
-
 
 # Data preparation
 
 Load data, keep variables needed and merge
 
 ```{r Load data}
-data_2017<-read.table("C:/Users/User/Dropbox/SU/Projects/cerastium_2/data/edited/Cerastium2017_AV.csv",header=T,sep=",",dec=".") 
-data_2018<-read.table("C:/Users/User/Dropbox/SU/Projects/cerastium_2/data/edited/Cerastium2018_AV.csv",header=T,sep=",",dec=".") 
+data_2017<-read.table("data/edited/Cerastium2017_AV.csv",header=T,sep=",",
+                      dec=".") 
+data_2018<-read.table("data/edited/Cerastium2018_AV.csv",header=T,sep=",",
+                      dec=".") 
 data_2017<-subset(data_2017,INCLUDE==1)[c(1:5,7)]
 data_2018<-subset(data_2018,INCLUDE==1)[c(1:4,7,9)]
 names(data_2017)<-c("id","id_original","temp","ffd","nfl","nseed")
@@ -208,6 +212,7 @@ Residuals against log(nfl)
 plotResiduals(simulationOutput_FFD_2017_1,
      form = log(subset(mydata,year==2017)$nfl))
 ```
+
 Heteroskedasticity problem: Construct heteroskedasticity consistent standard errors, or robust standard errors (White’s standard errors)
 
 ```{r}
@@ -282,12 +287,13 @@ BCIs_FFD_2017_1 <- cbind(
   )
 colnames(BCIs_FFD_2017_1)<-c("lower","upper")
 rownames(BCIs_FFD_2017_1) <- c("temp","lognfl")
-save(BCIs_FFD_2017_1,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_FFD_2017_1.RData")
+save(BCIs_FFD_2017_1,file="output/BCIs_FFD_2017_1.RData")
 ```
 
 ```{r}
 BCIs_FFD_2017_1
 ```
+
 Both are "significant" according to BCa intervals.
 
 #### Plots
@@ -339,6 +345,7 @@ grid.arrange(
               aes(x=x,y=predicted),size=1,color="#00BFC4")+
     geom_point(),
   ncol=2)
+ggsave(filename="output/figures/fig2.tiff",width=9,height=8,units="cm",dpi=300)
 ```
 
 ### Quadratic
@@ -530,6 +537,7 @@ grid.arrange(
               aes(x=x,y=predicted),size=1,color="#00BFC4")+geom_point()+
     xlab("Temperature (ºC)")+ylab("Fitness")+my_theme(),
   ncol=2)
+ggsave(filename="output/figures/fig3.tiff",width=9,height=8,units="cm",dpi=300)
 ```
 
 # 3. Effect of temperature on selection on FFD
@@ -616,7 +624,7 @@ BCIs_selection_2017 <- cbind(
 )
 colnames(BCIs_selection_2017)<-c("lower","upper")
 rownames(BCIs_selection_2017) <- c("ffd_std","temp","nfl_std","ffd_std:temp")
-save(BCIs_selection_2017,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2017.RData")
+save(BCIs_selection_2017,file="output/BCIs_selection_2017.RData")
 ```
 
 ```{r}
@@ -669,7 +677,7 @@ BCIs_selection_2018 <- cbind(
 )
 colnames(BCIs_selection_2018)<-c("lower","upper")
 rownames(BCIs_selection_2018) <- c("ffd_std","temp","nfl_std","ffd_std:temp")
-save(BCIs_selection_2018,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2018.RData")
+save(BCIs_selection_2018,file="output/BCIs_selection_2018.RData")
 ```
 
 ```{r}
@@ -690,6 +698,7 @@ ggplot(interaction1, aes(ffd_std,fit, group = as.factor(temp)))+
   xlab("Standardized FFD")+ylab("Relative number of seeds")+
   my_theme()+scale_colour_gradientn(colours = myPalette(100))+
   theme(legend.position="right")+labs(colour="Soil temperature (ªC)")
+ggsave(filename="output/figures/fig4.tiff",width=14,height=8,units="cm",dpi=300)
 ```
 
 ### Quadratic
@@ -787,7 +796,7 @@ BCIs_selection_2017_abs <- cbind(
   )
 colnames(BCIs_selection_2017_abs)<-c("lower","upper")
 rownames(BCIs_selection_2017_abs) <- c("ffd","temp","nfl","ffd:temp")
-save(BCIs_selection_2017_abs,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2017_abs.RData")
+save(BCIs_selection_2017_abs,file="output/BCIs_selection_2017_abs.RData")
 ```
 
 ```{r}
@@ -842,7 +851,7 @@ BCIs_selection_2018_abs <- cbind(
 )
 colnames(BCIs_selection_2018_abs)<-c("lower","upper")
 rownames(BCIs_selection_2018_abs) <- c("ffd","temp","nfl","ffd:temp")
-save(BCIs_selection_2018_abs,file="C:/Users/User/Dropbox/SU/Projects/cerastium_2/code/objects/BCIs_selection_2018_abs.RData")
+save(BCIs_selection_2018_abs,file="output/BCIs_selection_2018_abs.RData")
 ```
 
 ```{r}
@@ -865,4 +874,8 @@ ggplot(interaction2, aes(ffd,fit, group = as.factor(temp)))+
 ```
 
 We could also try this model with other distributions (Poisson, negative binomial), but I guess that keeping the "classic" approach with a normal distribution is OK if we show BCa intervals.
+
+```{r include=FALSE}
+sessionInfo()
+```
 

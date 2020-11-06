@@ -1,0 +1,1314 @@
+---
+title: "Maladaptive plastic responses of flowering time to geothermal heating (Cerastium 2)"
+subtitle: "Logger data preparation"
+author : "Alicia Valdés"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 4
+  html_notebook:
+    toc: yes
+    toc_depth: '4'
+    latex_engine: xelatex
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r load packages, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(knitr)
+library(gridExtra)
+library(DHARMa)
+library(RColorBrewer)
+library(broom)
+library(ggpubr)
+library(jtools)
+library(kableExtra)
+library(ggeffects)
+library(MuMIn)
+library(MASS)
+library(segmented)
+library(effects)
+library(purrr)
+library(lubridate)
+library(ggforce)
+library(car)
+library(ggrepel)
+```
+
+```{r Define ggplot themes and palettes, include=FALSE}
+my_theme <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(legend.position="none")+theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+my_theme_legend <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+myPalette <- colorRampPalette(brewer.pal(11, "YlOrRd"))
+```
+
+```{r, include=FALSE}
+set_summ_defaults(digits = 3)
+```
+
+# Read list of all plants with temperature measured in 2018 (including Cerastium and other species)
+
+```{r}
+ids_temp_allsps<-read.table("data/edited/ids_temp_allsps.csv",
+                            header=T,sep=",",dec=".") 
+ids_temp_allsps$temp_term<-ids_temp_allsps$temp
+ids_temp_allsps$temp<-NULL
+head(ids_temp_allsps)
+```
+
+temp\_term = soil temperature measured with a thermometer at the time of marking in 2018, measured next to each plant at a depth of 10 cm.
+
+# Read list of plants with loggers (including Cerastium and other species)
+
+```{r}
+loggers<-read.table("data/edited/ibuttons_AV_allsps.csv",
+  header=T,sep=",",dec=".") 
+head(loggers)
+```
+
+# Merge both
+
+Keeping records in both lists (i.e. plants with temperature measured with thermometer and with a logger).
+
+```{r message=FALSE, warning=FALSE}
+temp_loggers<-ids_temp_allsps%>%
+  inner_join(loggers)
+head(temp_loggers)
+```
+
+```{r fig.height=3, fig.width=4}
+ggplot(temp_loggers,aes(x=factor(above_below)))+geom_bar()
+```
+
+79 above and 143 below.
+
+# Import raw iButton data
+
+```{r}
+all_logger_data <- list()
+for(filename in list.files("data/edited/RAW_iButton_data_to_use",
+  full.names=T)) {
+   all_logger_data[[length(all_logger_data) + 1]] <- read.table(filename,
+                                                header=T,fill=T,sep=",",
+                                                dec=",",skip=14) 
+   all_logger_data[[length(all_logger_data)]]$logger_nr <-substr(filename,
+                                                                 start=37,
+                                                                 stop=100)
+}
+logger_data <- do.call(rbind, all_logger_data)%>%
+  rownames_to_column("datetime")%>%
+  rename(unit=Date.Time,value_int=Unit,value_dec=Value)
+logger_data<-logger_data[c(1,3:5)]%>%
+  mutate(temp=as.numeric(ifelse(is.na(value_dec),
+                                value_int,
+                                paste(value_int,value_dec,sep="."))))
+logger_data<-logger_data[c(1,4:5)]%>%
+  mutate(datetime=as.POSIXct(logger_data$datetime,
+                             format="%d.%m.%Y %H:%M:%S",tz=Sys.timezone()))
+logger_data<-logger_data%>%
+  mutate(datetime=datetime %m+% years(1))%>%
+  # Add one year to dates, as they were wrong - CHECK SOME CASES WERE NOT!
+  mutate(logger_nr=as.numeric(gsub(".csv","",logger_nr)))
+
+# Read individually some files that gave problems
+log339<-read.table("data/edited/RAW_iButton_data_to_use_problematic/339.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log344<-read.table("data/edited/RAW_iButton_data_to_use_problematic/344.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log352<-read.table("data/edited/RAW_iButton_data_to_use_problematic/352.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log383<-read.table("data/edited/RAW_iButton_data_to_use_problematic/383.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log431<-read.table("data/edited/RAW_iButton_data_to_use_problematic/431.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log585<-read.table("data/edited/RAW_iButton_data_to_use_problematic/585.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log641<-read.table("data/edited/RAW_iButton_data_to_use_problematic/641.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log654<-read.table("data/edited/RAW_iButton_data_to_use_problematic/654.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log663<-read.table("data/edited/RAW_iButton_data_to_use_problematic/663.csv",
+           header=T,fill=T,sep=",",dec=",",skip=14)
+log339$logger_nr<-339
+log344$logger_nr<-344
+log352$logger_nr<-352
+log383$logger_nr<-383
+log431$logger_nr<-431
+log585$logger_nr<-585
+log641$logger_nr<-641
+log654$logger_nr<-654
+log663$logger_nr<-663
+
+logger_data_problematic<-rbind(log339,log344,log352,log383,log431,
+                               log585,log641,log654,log663)
+logger_data_problematic<-logger_data_problematic%>%
+  rename(datetime=Date.Time)%>%
+   mutate(temp=as.numeric(ifelse(is.na(value_dec),
+                                value_int,
+                                paste(value_int,value_dec,sep="."))))
+logger_data_problematic<-logger_data_problematic[c(1,5:6)]%>%
+  mutate(datetime=as.POSIXct(logger_data_problematic$datetime,
+                             format="%d.%m.%Y %H:%M:%S",
+                             tz=Sys.timezone()))%>%
+  mutate(datetime=datetime %m+% years(1))
+  # Add one year to dates, as they were wrong - CHECK SOME CASES WERE NOT!
+
+logger_data<-rbind(logger_data,logger_data_problematic)%>%
+  inner_join(temp_loggers)
+head(logger_data) 
+```
+
+```{r}
+nrow(subset(logger_data,is.na(datetime)))
+```
+
+There are some NAs for datetime (70 rows - it seems that they were not able to be converted to POSIXct) --\> We can live with those
+
+# Read coordinates of loggers and add to data:
+
+```{r}
+coords<-read.table("data/edited/coords_AV.csv",
+  header=T,sep=",",dec=".") 
+logger_data<-logger_data%>%
+  left_join(coords)
+head(logger_data)
+```
+
+# Plot locations of loggers in each plot, calculate distance matrices and make pairs
+
+For each plot, pair each aboveground logger with the closest belowground logger
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC1")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC1")+
+  scale_y_continuous(breaks = seq(0,13,by=1)) +
+  scale_x_continuous(breaks = seq(0,13,by=1)) +
+  coord_fixed(ylim=c(0, 9),xlim=c(0, 12))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC1")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 103-105 and 104-101
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==103|logger_nr==105,1,
+                     ifelse(logger_nr==104|logger_nr==101,2,NA)))%>%
+  mutate(dist=ifelse(pair==1,0.51,
+                     ifelse(pair==2,5.65,NA)))
+```
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC2a")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC2a")+
+  scale_y_continuous(breaks = seq(0,13,by=1)) +
+  scale_x_continuous(breaks = seq(0,13,by=1)) +
+  coord_fixed(ylim=c(0, 3),xlim=c(0, 9))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC2a")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 108-113 and 111-115
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==108|logger_nr==113,3,
+                     ifelse(logger_nr==111|logger_nr==115,4,pair)))%>%
+  mutate(dist=ifelse(pair==3,2.21,
+                     ifelse(pair==4,3.90,dist)))
+```
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC2b")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC2b")+
+  scale_y_continuous(breaks = seq(0,13,by=1)) +
+  scale_x_continuous(breaks = seq(0,13,by=1)) +
+  coord_fixed(ylim=c(0, 5),xlim=c(0, 13))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC2b")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 122-117 and 119-123
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==122|logger_nr==117,5,
+                     ifelse(logger_nr==119|logger_nr==123,6,pair)))%>%
+  mutate(dist=ifelse(pair==5,4.47,
+                     ifelse(pair==6,2.52,dist)))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="HC3")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC3")+
+  scale_y_continuous(breaks = seq(0,13,by=1)) +
+  scale_x_continuous(breaks = seq(0,13,by=1)) +
+  coord_fixed(ylim=c(0, 3),xlim=c(0, 9))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC3")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 137-127, 138-133 and 136-124
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==137|logger_nr==127,7,
+                     ifelse(logger_nr==138|logger_nr==133,8,
+                            ifelse(logger_nr==136|logger_nr==124,9,pair))))%>%
+  mutate(dist=ifelse(pair==7,0.35,
+                     ifelse(pair==8,0.72,
+                            ifelse(pair==9,0.22,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="HC4")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC4")+
+  scale_y_continuous(breaks = seq(0,20,by=1)) +
+  scale_x_continuous(breaks = seq(0,20,by=1)) +
+  coord_fixed(ylim=c(0, 10),xlim=c(0, 20))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC4")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 139-152, 143-153 and 149-154
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==139|logger_nr==152,10,
+                     ifelse(logger_nr==143|logger_nr==153,11,
+                            ifelse(logger_nr==149|logger_nr==154,12,pair))))%>%
+  mutate(dist=ifelse(pair==10,2.63,
+                     ifelse(pair==11,0.51,
+                            ifelse(pair==12,0.96,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="HC5")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC5")+
+  scale_y_continuous(breaks = seq(0,20,by=1)) +
+  scale_x_continuous(breaks = seq(0,20,by=1)) +
+  coord_fixed(ylim=c(0, 7),xlim=c(0, 13))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC5")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 165-155, 166-160 and 168-163
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==165|logger_nr==155,13,
+                     ifelse(logger_nr==166|logger_nr==160,14,
+                            ifelse(logger_nr==168|logger_nr==163,15,pair))))%>%
+  mutate(dist=ifelse(pair==13,1.47,
+                     ifelse(pair==14,1.08,
+                            ifelse(pair==15,1.35,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="HC6")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC6")+
+  scale_y_continuous(breaks = seq(0,22,by=1)) +
+  scale_x_continuous(breaks = seq(0,22,by=1)) +
+  coord_fixed(ylim=c(0, 10),xlim=c(0, 20))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC6")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 205-169 and 209-202
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==205|logger_nr==169,16,
+                     ifelse(logger_nr==209|logger_nr==202,17,pair)))%>%
+  mutate(dist=ifelse(pair==16,1.30,
+                     ifelse(pair==17,4.87,dist)))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="HC10")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC10")+
+  scale_y_continuous(breaks = seq(0,22,by=1)) +
+  scale_x_continuous(breaks = seq(0,22,by=1)) +
+  coord_fixed(ylim=c(0, 7),xlim=c(0, 7))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC10")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 57-3, 71-20 and 58-28
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==57|logger_nr==3,18,
+                     ifelse(logger_nr==71|logger_nr==20,19,
+                            ifelse(logger_nr==58|logger_nr==28,20,pair))))%>%
+  mutate(dist=ifelse(pair==18,1.27,
+                     ifelse(pair==19,1.01,
+                            ifelse(pair==20,1.34,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="HC7")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC7")+
+  scale_y_continuous(breaks = seq(0,22,by=1)) +
+  scale_x_continuous(breaks = seq(0,22,by=1)) +
+  coord_fixed(ylim=c(0, 4),xlim=c(0, 13))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC7")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 220-212, 221-215 and 222-218
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==220|logger_nr==212,21,
+                     ifelse(logger_nr==221|logger_nr==215,22,
+                            ifelse(logger_nr==222|logger_nr==218,23,pair))))%>%
+  mutate(dist=ifelse(pair==21,1.91,
+                     ifelse(pair==22,1.41,
+                            ifelse(pair==23,1.50,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="HC8")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC8")+
+  scale_y_continuous(breaks = seq(0,22,by=1)) +
+  scale_x_continuous(breaks = seq(0,22,by=1)) +
+  coord_fixed(ylim=c(0, 6),xlim=c(0, 10))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC8")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 233-224, 234-232 and 237-230
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==233|logger_nr==224,24,
+                     ifelse(logger_nr==234|logger_nr==232,25,
+                            ifelse(logger_nr==237|logger_nr==230,26,pair))))%>%
+  mutate(dist=ifelse(pair==24,2.60,
+                     ifelse(pair==25,1.33,
+                            ifelse(pair==26,1.10,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="HC09")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot HC09")+
+  scale_y_continuous(breaks = seq(0,22,by=1)) +
+  scale_x_continuous(breaks = seq(0,22,by=1)) +
+  coord_fixed(ylim=c(0, 6),xlim=c(0, 20))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="HC09")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 249-238, 251-243 and 252-247
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==249|logger_nr==238,27,
+                     ifelse(logger_nr==251|logger_nr==243,28,
+                            ifelse(logger_nr==252|logger_nr==247,29,pair))))%>%
+  mutate(dist=ifelse(pair==27,2.24,
+                     ifelse(pair==28,2.55,
+                            ifelse(pair==29,1.81,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H10")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H10")+
+  scale_y_continuous(breaks = seq(-5,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(-5, 8),xlim=c(0, 30))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H10")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 261-258, 262-255 (same plant/location), 263-256 (same plant/location)
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==261|logger_nr==258,30,
+                     ifelse(logger_nr==262|logger_nr==255,31,
+                            ifelse(logger_nr==263|logger_nr==256,32,pair))))%>%
+  mutate(dist=ifelse(pair==30,13.32,
+                     ifelse(pair==31,0,
+                            ifelse(pair==32,0,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H01")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H01")+
+  scale_y_continuous(breaks = seq(0,22,by=1)) +
+  scale_x_continuous(breaks = seq(0,22,by=1)) +
+  coord_fixed(ylim=c(0, 8),xlim=c(0, 20))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H01")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 273-266, 274-267 and 275-270
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==273|logger_nr==266,33,
+                     ifelse(logger_nr==274|logger_nr==267,34,
+                            ifelse(logger_nr==275|logger_nr==270,35,pair))))%>%
+  mutate(dist=ifelse(pair==33,3.09,
+                     ifelse(pair==34,1.84,
+                            ifelse(pair==35,2.15,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H02")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H02")+
+  scale_y_continuous(breaks = seq(0,22,by=1)) +
+  scale_x_continuous(breaks = seq(0,22,by=1)) +
+  coord_fixed(ylim=c(0, 10),xlim=c(0, 15))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H02")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 287-279
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==287|logger_nr==279,36,pair))%>%
+  mutate(dist=ifelse(pair==36,9.06,dist))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H03")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H03")+
+  scale_y_continuous(breaks = seq(0,22,by=1)) +
+  scale_x_continuous(breaks = seq(0,22,by=1)) +
+  coord_fixed(ylim=c(0, 7),xlim=c(0, 12))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H03")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 296-288, 297-289 and 298-290 (same locations/plants)
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==296|logger_nr==288,37,
+                     ifelse(logger_nr==297|logger_nr==289,38,
+                            ifelse(logger_nr==298|logger_nr==290,39,pair))))%>%
+  mutate(dist=ifelse(pair==37,0,
+                     ifelse(pair==38,0,
+                            ifelse(pair==39,0,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H04")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H04")+
+  scale_y_continuous(breaks = seq(-2,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(-2, 7),xlim=c(0, 28))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H04")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 306-300, 307-301 and 308-302
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==306|logger_nr==300,40,
+                     ifelse(logger_nr==307|logger_nr==301,41,
+                            ifelse(logger_nr==308|logger_nr==302,42,pair))))%>%
+  mutate(dist=ifelse(pair==40,1.67,
+                     ifelse(pair==41,4.04,
+                            ifelse(pair==42,1.19,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H05")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H05")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 6),xlim=c(0, 20))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H05")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 319-310, 320-312 and 321-317
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==319|logger_nr==310,43,
+                     ifelse(logger_nr==320|logger_nr==312,44,
+                            ifelse(logger_nr==321|logger_nr==317,45,pair))))%>%
+  mutate(dist=ifelse(pair==43,1.46,
+                     ifelse(pair==44,1.32,
+                            ifelse(pair==45,0.96,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H06")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H06")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 6),xlim=c(0, 28))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H06")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 331-323, 332-324 and 333-329
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==331|logger_nr==323,46,
+                     ifelse(logger_nr==332|logger_nr==324,47,
+                            ifelse(logger_nr==333|logger_nr==329,48,pair))))%>%
+  mutate(dist=ifelse(pair==46,2.25,
+                     ifelse(pair==47,2.39,
+                            ifelse(pair==48,1.29,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H07")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H07")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 3),xlim=c(0, 20))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H07")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 344-334, 345-336 and 346-339
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==344|logger_nr==334,49,
+                     ifelse(logger_nr==345|logger_nr==336,50,
+                            ifelse(logger_nr==346|logger_nr==339,51,pair))))%>%
+  mutate(dist=ifelse(pair==49,1.11,
+                     ifelse(pair==50,1.48,
+                            ifelse(pair==51,1.52,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H08")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H08")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(-1, 5),xlim=c(0, 21))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H08")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 355-347, 356-349 and 357-352
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==355|logger_nr==347,52,
+                     ifelse(logger_nr==356|logger_nr==349,53,
+                            ifelse(logger_nr==357|logger_nr==352,54,pair))))%>%
+  mutate(dist=ifelse(pair==52,1.24,
+                     ifelse(pair==53,4.59,
+                            ifelse(pair==54,3.54,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H09")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H09")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 4),xlim=c(0, 20))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H09")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 369-362, 370-366 and 371-367
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==369|logger_nr==362,55,
+                     ifelse(logger_nr==370|logger_nr==366,56,
+                            ifelse(logger_nr==371|logger_nr==367,57,pair))))%>%
+  mutate(dist=ifelse(pair==55,2.55,
+                     ifelse(pair==56,4.68,
+                            ifelse(pair==57,1.19,dist))))
+```
+
+Plot H11 not included because there are only aboveground loggers
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H13")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H13")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(-1, 3),xlim=c(0, 11))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H13")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 395-386 (same location/plant) and 396-391
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==395|logger_nr==386,58,
+                     ifelse(logger_nr==396|logger_nr==391,59,pair)))%>%
+  mutate(dist=ifelse(pair==58,0,
+                     ifelse(pair==59,5.16,dist)))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H14")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H14")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0,7),xlim=c(0, 9))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H14")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 411-406, 408-397 and 415-407
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==411|logger_nr==406,60,
+                     ifelse(logger_nr==408|logger_nr==397,61,
+                            ifelse(logger_nr==415|logger_nr==407,62,pair))))%>%
+  mutate(dist=ifelse(pair==60,1.50,
+                     ifelse(pair==61,0,
+                            ifelse(pair==62,3.45,dist))))
+```
+
+Plot H11 not included because there are only aboveground loggers
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H16")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H16")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 12),xlim=c(0, 5))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H16")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 458-559
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==458|logger_nr==559,63,pair))%>%
+  mutate(dist=ifelse(pair==63,0,dist))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H17")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H17")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 8),xlim=c(0, 9))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H17")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 654-585, 655-588 and 656-599 (all same locations / plants)
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==654|logger_nr==588,64,
+                     ifelse(logger_nr==655|logger_nr==588,65,
+                            ifelse(logger_nr==656|logger_nr==599,66,pair))))%>%
+  mutate(dist=ifelse(pair==64,0,
+                     ifelse(pair==65,0,
+                            ifelse(pair==66,0,dist))))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H18a")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H18a")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 3),xlim=c(0, 25))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H18a")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 663-659 and 664-662 (all same locations / plants)
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==663|logger_nr==659,67,
+                     ifelse(logger_nr==664|logger_nr==662,68,pair)))%>%
+  mutate(dist=ifelse(pair==67,0,
+                     ifelse(pair==68,0,dist)))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H18b")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H18b")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 3),xlim=c(0, 3))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H18b")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 671-668 (same location / plant) and 670-666
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==671|logger_nr==668,69,
+                     ifelse(logger_nr==670|logger_nr==666,70,pair)))%>%
+  mutate(dist=ifelse(pair==69,0,
+                     ifelse(pair==70,1.77,dist)))
+```
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=6}
+logger_data%>%
+  filter(plot=="H19")%>%
+  group_by(plot,logger_nr,above_below)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  ggplot(aes(x=X,y=Y,color=above_below,label=logger_nr))+geom_point()+
+  geom_text_repel()+ggtitle("Plot H19")+
+  scale_y_continuous(breaks = seq(0,30,by=1)) +
+  scale_x_continuous(breaks = seq(0,30,by=1)) +
+  coord_fixed(ylim=c(0, 12),xlim=c(0, 4))
+```
+
+Distance matrix:
+
+```{r message=FALSE, warning=FALSE}
+logger_data%>%
+  filter(plot=="H19")%>%
+  group_by(logger_nr)%>%
+  summarise(X=first(X),Y=first(Y))%>%
+  column_to_rownames(var="logger_nr")%>%
+  dist()%>%
+  as.matrix()%>%
+  # as.data.frame()%>%
+  # rownames_to_column(var="logger_nr")%>%
+  # pivot_longer(cols=-logger_nr,names_to="logger_nr_2",values_to="distance")
+  round(digits=2)
+```
+
+Pairs: 683-675, 682-674, 681-673 (all same locations / plants)
+
+```{r}
+logger_data<-logger_data%>%
+  mutate(pair=ifelse(logger_nr==683|logger_nr==675,71,
+                     ifelse(logger_nr==682|logger_nr==674,72,
+                            ifelse(logger_nr==681|logger_nr==673,73,pair))))%>%
+  mutate(dist=ifelse(pair==71,0,
+                     ifelse(pair==72,0,
+                            ifelse(pair==73,0,dist))))
+```
+
+```{r}
+logger_data_pairs<-subset(logger_data,!is.na(pair))
+```
+
+# Write logger_data and logger_data_pairs to csv files
+
+```{r include=FALSE}
+write_csv(logger_data, file = "data/edited/logger_data.csv")
+write_csv(logger_data_pairs, file = "data/edited/logger_data_pairs.csv")
+```
+
+```{r include=FALSE}
+sessionInfo()
+```
+
+
+
+
