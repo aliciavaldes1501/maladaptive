@@ -1627,7 +1627,7 @@ And the graph:
 
 ##### Based on 24-h values
 
-For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the aboveground logger) **for the same period (May)**.
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the aboveground logger) **for the same period (June)**.
 
 ```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
 (logger_data_pairs%>%
