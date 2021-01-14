@@ -1170,7 +1170,7 @@ Pairs: 654-585, 655-588 and 656-599 (all same locations / plants)
 
 ```{r}
 logger_data<-logger_data%>%
-  mutate(pair=ifelse(logger_nr==654|logger_nr==588,64,
+  mutate(pair=ifelse(logger_nr==654|logger_nr==585,64,
                      ifelse(logger_nr==655|logger_nr==588,65,
                             ifelse(logger_nr==656|logger_nr==599,66,pair))))%>%
   mutate(dist=ifelse(pair==64,0,

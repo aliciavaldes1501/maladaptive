@@ -226,7 +226,7 @@ logger_data%>%
   linearHypothesis(., "temp_term = 1")
 ```
 
-When looking only at air temperature in May, the slope is also significantly different from 1: differences between soil and air temperature change with soil temperature, being larger at higher soil temperatures.
+When looking only at air temperature in May, the slope is also significantly different from 1. But it is not significantly different from zero! So there is no relationship between soil and air temperature.
 
 ### Logger data for April-May-June:
 
@@ -482,8 +482,6 @@ logger_data%>%
   linearHypothesis(., "temp_term = 1")  
 ```
 
-Similar results when using daily or positive temperature values.
-
 # Q3: Do correlations between soil and air temperature vary with soil temperature?
 
 Or: How useful soil temperature is as a cue for air temperature, i.e., as a cue for spring advancement?
@@ -648,7 +646,7 @@ Most loggers (131 out of 145) end up on June 6th. So probably using May is OK.
 
 ##### Based on 24-h values
 
-For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the period April-May-June. Finally, regress these correlation coefficients on mean soil temperature (from the aboveground logger) **for the same period (April-May-June)**.
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the period April-May-June. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) **for the same period (April-May-June)**.
 
 Using only data till June 5th, included (as most loggers stop on June 6th).
 
@@ -1081,7 +1079,7 @@ Linear models testing the effect of soil temperature on correlations between soi
   kable()
 ```
 
-All significant!
+All but max are significant.
 
 And the graph:
 
@@ -1197,7 +1195,7 @@ Linear models testing the effect of soil temperature on correlations between soi
   kable()
 ```
 
-Significant for min only.
+Non-significant in all cases.
 
 Linear models testing the effect of soil temperature on correlations between soil and air temperature, removing pairs with negative correlations:
 
@@ -1279,7 +1277,7 @@ And the graph:
 
 ##### Based on 24-h values
 
-For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the aboveground logger) **for the same period (May)**.
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) **for the same period (May)**.
 
 ```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
 (logger_data_pairs%>%
@@ -1627,7 +1625,7 @@ And the graph:
 
 ##### Based on 24-h values
 
-For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the aboveground logger) **for the same period (June)**.
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) **for the same period (June)**.
 
 ```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
 (logger_data_pairs%>%
@@ -1702,7 +1700,7 @@ logger_data_pairs_2<-subset(logger_data_pairs,dist<2)
 
 #### Correlations soil-air temperature over the period April-May-June
 
-For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the period April-May-June. Finally, regress these correlation coefficients on mean soil temperature (from the aboveground logger) **for the same period (April-May-June)**.
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the period April-May-June. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) **for the same period (April-May-June)**.
 
 Using only data till June 5th, included (as most loggers stop on June 6th).
 
@@ -1776,7 +1774,7 @@ Non-significant in all cases.
 
 #### Correlations soil-air temperature for May only
 
-For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the aboveground logger) **for the same period (May)**.
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) **for the same period (May)**.
 
 ```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
 (logger_data_pairs_2%>%
@@ -1983,6 +1981,184 @@ Linear models testing the effect of soil temperature on correlations between soi
 ```
 
 Significant only for min, near significance for the others.
+
+# Plot all logger pairs
+
+Make one plot for each logger pair and save all as a pdf in output folder.
+
+```{r fig.height=5, fig.width=8, message=FALSE, warning=FALSE, include=FALSE}
+plots <- logger_data_pairs %>%
+  mutate(month = month(datetime))%>%
+         filter(month==4|month==5|month==6)%>%
+         filter(datetime<"2018-06-06")%>%
+  group_by(pair) %>%
+  do(plot = ggplot(data = .) + 
+       geom_line(aes(x=datetime,y=temp,color=above_below),size=0.1) +
+       ggtitle(paste("pair ",unique(.$pair))))
+pdf("output/plots_loggerpairs.pdf",width=12)
+plots$plot
+dev.off()
+```
+
+After looking at the plots, make a new variable pair_problem:
+- 0 = no problem
+- 1 = some problems (remove)
+
+```{r}
+# Define the groups of logger pairs
+logger_data_pairs<-logger_data_pairs%>%
+  mutate(pair_problem=ifelse(pair%in%c(1:4,11,13:16,21:62,70),0,1))
+```
+
+# Q3 Option 2 with logger pairs with no problems
+
+## Analyses using all pairs
+
+### Correlations soil-air temperature over the period April-May-June
+
+```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
+(logger_data_pairs%>%
+     mutate(month = month(datetime))%>%
+     filter(month==4|month==5|month==6)%>%
+     mutate(date=date(datetime))%>%
+     filter(datetime<"2018-06-06")%>%
+     filter(!is.na(date))%>%
+     filter(pair_problem==0)%>%
+     group_by(date,pair,above_below)%>%
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
+               plot=first(plot))%>%
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"),
+               plot=first(plot))%>%
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+     left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==4|month==5|month==6)%>%
+                 filter(datetime<"2018-06-06")%>%
+                 filter(pair_problem==0)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+                 summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
+  # NAs for plots H11 and H15 --> no Belowground loggers
+  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure))+geom_point()+
+  geom_smooth(method="lm")+
+  xlab("Mean soil temperature for April-May-June")+
+  ylab("Correlation coef. air-soil temperature\nover April-May-June\n(based on daily mean/min/max temperatures)")+
+  geom_text_repel(data=. %>% filter(corr<0),aes(label=pair))
+```
+
+Most of the pairs with negative correlations have disappeared when considering only pairs without problems!
+
+Linear models testing the effect of soil temperature on correlations between soil and air temperature:
+
+```{r message=FALSE, warning=FALSE}
+(logger_data_pairs%>%
+     mutate(month = month(datetime))%>%
+     filter(month==4|month==5|month==6)%>%
+     mutate(date=date(datetime))%>%
+     filter(datetime<"2018-06-06")%>%
+     filter(!is.na(date))%>%
+     filter(pair_problem==0)%>%
+     group_by(date,pair,above_below)%>%
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
+               plot=first(plot))%>%
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"),
+               plot=first(plot))%>%
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==4|month==5|month==6)%>%
+                 filter(datetime<"2018-06-06")%>%
+                 filter(pair_problem==0)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
+  group_by(measure)%>%
+  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
+  unnest(fitcorr)%>%
+  kable()
+```
+
+All significant.
+
+### Correlations soil-air temperature for May only
+
+```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
+(logger_data_pairs%>%
+  mutate(month = month(datetime))%>%
+  filter(month==5)%>%
+  mutate(date=date(datetime))%>%
+  filter(!is.na(date))%>%
+  filter(pair_problem==0)%>%
+  group_by(date,pair,above_below)%>%
+  summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
+               plot=first(plot))%>%
+  pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+  group_by(pair)%>%
+  summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+            corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+            corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"),
+            plot=first(plot))%>%
+   pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+              mutate(month = month(datetime))%>%
+              filter(month==5)%>%
+              filter(pair_problem==0)%>%
+              filter(above_below=="B")%>%
+              group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
+  # NAs for plots H11 and H15 --> no Belowground loggers
+  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure))+geom_point()+
+  geom_smooth(method="lm")+
+  xlab("Mean soil temperature for May")+
+  ylab("Correlation coef. air-soil temperature\nover May\n(based on daily mean/min/max temperatures)")+
+  geom_text_repel(data=. %>% filter(corr<0),aes(label=pair))
+```
+
+Linear models testing the effect of soil temperature on correlations between soil and air temperature:
+
+```{r message=FALSE, warning=FALSE}
+(logger_data_pairs%>%
+  mutate(month = month(datetime))%>%
+  filter(month==5)%>%
+  mutate(date=date(datetime))%>%
+  filter(!is.na(date))%>%
+  filter(pair_problem==0)%>%
+  group_by(date,pair,above_below)%>%
+  summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>%
+  pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+  group_by(pair)%>%
+  summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+            corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+            corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"))%>%
+   pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+              mutate(month = month(datetime))%>%
+  filter(month==5)%>%
+  filter(pair_problem==0)%>%
+  filter(above_below=="B")%>%
+  group_by(pair)%>%
+  summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
+  group_by(measure)%>%
+  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
+  unnest(fitcorr)%>%
+  kable()
+```
+
+Non-significant in all cases.
+
+# Session Info
 
 ```{r include=FALSE}
 sessionInfo()
