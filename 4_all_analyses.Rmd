@@ -152,7 +152,161 @@ ggqqplot(mydata[3:7], x = c("ffd", "nfl", "nseed", "temp"),color="year",
          combine = TRUE,scales="free")
 ```
 
-# 1. Effect of temperature on FFD
+# 1. How useful soil temperature is as a cue for air temperature
+
+Do correlations between soil and air temperature vary with soil temperature?
+
+We test this using logger pairs.
+
+After looking at plots from individual pairs of loggers, make a new variable pair_problem:
+- 0 = no problem
+- 1 = some problems (remove)
+
+Use only logger pairs with no problems (53 pairs out of 73): pairs 1-4,9,11,13-16,21-62,70.
+
+Most loggers end up on June 6th, so using data until June 5th.
+
+Using pairs of loggers where above and belowground logger are at less than 2 m distance.
+
+```{r}
+logger_data_pairs<-logger_data_pairs%>%
+  mutate(pair_problem=ifelse(pair%in%c(1:4,9,11,13:16,21:62,70),0,1))%>%
+  filter(pair_problem==0)%>% # remove pairs with problems
+  mutate(date=date(datetime))%>%
+  filter(!is.na(date))%>% # remove records with no info on date
+  filter(datetime<"2018-06-06")%>% # keep only data until June 5
+  filter(dist<2) # keep logger pairs with < 2 m distance
+```
+
+```{r}
+length(unique(logger_data_pairs$logger_nr))
+length(unique(subset(logger_data_pairs,species=="cer")$logger_nr))
+```
+
+68 loggers (34 pairs), of which 32 loggers in Cerastium plants, and 36 loggers in other plants.
+
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the period April-May-June. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) **for the same period (April-May-June)**.
+
+Linear models testing the effect of soil temperature on correlations between soil and air temperature:
+
+```{r message=FALSE, warning=FALSE}
+(logger_data_pairs%>%
+     mutate(month = month(datetime))%>% # new variable "month"
+     filter(month==4|month==5|month==6)%>% # keep data from april-june
+     group_by(date,pair,above_below)%>% 
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
+               plot=first(plot))%>% 
+   #calculate mean, max and min of air and soil temperature 
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"),
+               plot=first(plot))%>%
+   # Calculate correlations air-soil temperatures
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==4|month==5|month==6)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
+  # calculate mean soil temperature for april-june
+  group_by(measure)%>%
+  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
+  unnest(fitcorr)%>%
+  kable(digits=5)
+```
+
+```{r}
+data_corr<-(logger_data_pairs%>%
+     mutate(month = month(datetime))%>% # new variable "month"
+     filter(month==4|month==5|month==6)%>% # keep data from april-june
+     group_by(date,pair,above_below)%>% 
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
+               plot=first(plot))%>% 
+   #calculate mean, max and min of air and soil temperature 
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"),
+               plot=first(plot))%>%
+   # Calculate correlations air-soil temperatures
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==4|month==5|month==6)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp),dist=first(dist))))
+  # calculate mean soil temperature for april-june
+```
+
+```{r}
+model_mean<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_mean"))
+model_max<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_max"))
+model_min<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_min"))
+```
+
+
+
+Predictions of correlations for minimum and maximum temperatures:
+
+```{r}
+ggpredict(model_mean,terms="meansoiltemp[minmax]") 
+ggpredict(model_max,terms="meansoiltemp[minmax]") 
+ggpredict(model_min,terms="meansoiltemp[minmax]") 
+```
+
+
+## Figure 2: Correlations soil-air temperature vs soil temperature
+
+```{r fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
+fig2<-(logger_data_pairs%>%
+          mutate(month = month(datetime))%>% # new variable "month"
+          filter(month==4|month==5|month==6)%>% # keep data from april-june
+          group_by(date,pair,above_below)%>% 
+          summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
+                    plot=first(plot))%>% 
+          #calculate mean, max and min of air and soil temperature 
+          pivot_wider(names_from="above_below",
+                      values_from=c("mean","max","min"))%>%
+          group_by(pair)%>%
+          summarise(corr_airsoil_mean=cor(mean_A,mean_B,
+                                          use="pairwise.complete.obs"),
+                    corr_airsoil_max=cor(max_A,max_B,
+                                         use="pairwise.complete.obs"),
+                    corr_airsoil_min=cor(min_A,min_B,
+                                         use="pairwise.complete.obs"),
+                    plot=first(plot))%>%
+          # Calculate correlations air-soil temperatures
+          pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                       names_to="measure",values_to="corr")%>%
+          left_join(logger_data_pairs%>%
+                      mutate(month = month(datetime))%>%
+                      filter(month==4|month==5|month==6)%>%
+                      filter(above_below=="B")%>%
+                      group_by(pair)%>%
+                      summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
+  # calculate mean soil temperature for april-june
+  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure,fill=measure))+
+  geom_smooth(method="lm",size=1)+geom_point(size=2,alpha=0.5)+
+  xlab("Mean soil temperature (ºC)")+
+  ylab("Correlation coefficient\nsoil-air temperature")+
+  my_theme()+
+  geom_text_repel(data=. %>% filter(corr<0),aes(label=pair))
+fig2
+ggsave(filename="output/figures/fig2.tiff",plot=fig2,
+       width=12,height=10,units="cm",dpi=300)
+```
+
+# 2. Effect of temperature on FFD
 
 Not including number of flowers as covariate, including quadratic effects of ffd.
 
@@ -261,165 +415,6 @@ CIs for the slope of the second segment include zero (means it is not significan
 ```
 
 Keep the linear model, as the piecewise one does not seem to fit much better (the reduction in AIC was also small).
-
-# 2. Effect of temperature on plant size
-
-For 2017, get data on rosette diameter, maximum and median height from previous ms.
-
-```{r message=FALSE, warning=FALSE}
-size_2017<-read.csv("C:/Users/User/Dropbox/SU/Projects/cerastium/data/clean/cerastium_2017_FFD_temp_fit.txt",sep="\t")%>%
-  mutate(totalh=ifelse(nstems==0,NA,nstems*medianh))%>%
-  dplyr::select(id,temp1,maxh,medianh,area,totalh)%>%
-  rename(id_original=id)%>%
-  mutate(year=2017)%>%
-  mutate(year=as.factor(year))
-size_2018<-read_csv("data/edited/size_2018.csv")%>%
-  mutate(area=pi*d1*d2,totalh=ifelse(is.na(nstems),NA,nstems*medianh),
-         year=2018)%>%
-  mutate(year=as.factor(year))%>%
-  dplyr::select(id_original,temp1,maxh,medianh,area,totalh,year)
-mydata_size<-rbind(size_2017,size_2018)
-```
-
-Distributions 
-
-```{r message=FALSE, warning=FALSE}
-pivot_longer(mydata_size,cols=3:6) %>% 
-  ggplot(aes(value)) +
-    facet_wrap(~ name, scales = "free") +
-    geom_histogram(fill="white", color="black")
-```
-
-Distributions (log)
-
-```{r message=FALSE, warning=FALSE}
-pivot_longer(mydata_size,cols=3:6) %>% 
-  mutate(log_value=log(value))%>%
-  ggplot(aes(log_value)) +
-    facet_wrap(~ name, scales = "free") +
-    geom_histogram(fill="white", color="black")
-```
-
-Models of area, maximum height, median height and total height vs soil temperature
-
-# 2018
-
-```{r}
-area1_2018<-lm(area~temp1,subset(mydata_size,year==2018))
-maxh1_2018<-lm(maxh~temp1,subset(mydata_size,year==2018))
-medianh1_2018<-lm(medianh~temp1,subset(mydata_size,year==2018))
-totalh1_2018<-lm(totalh~temp1,subset(mydata_size,year==2018))
-```
-
-```{r}
-summ(area1_2018)
-summ(maxh1_2018)
-summ(medianh1_2018)
-summ(totalh1_2018)
-```
-
-Significant negative effect of temperature on median height.
-
-## Model diagnostics
-
-```{r}
-simulationOutput_medianh1_2018<-simulateResiduals(fittedModel=medianh1_2018,
-                                                  n=5000)
-```
-
-qq-plot and plot of residuals vs. predicted:
-
-```{r fig.height=4, fig.width=7}
-plot(simulationOutput_medianh1_2018)
-```
-
-Residuals against temperature
-
-```{r}
-plotResiduals(simulationOutput_medianh1_2018,
-     form = subset(mydata_size,year==2018&!is.na(medianh))$temp1)
-```
-
-Predictions of fitness for minimum and maximum temperatures:
-
-```{r}
-ggpredict(medianh1_2018,terms="temp1[minmax]") 
-```
-# 2017
-
-```{r}
-area1_2017<-lm(area~temp1,subset(mydata_size,year==2017))
-maxh1_2017<-lm(maxh~temp1,subset(mydata_size,year==2017))
-medianh1_2017<-lm(medianh~temp1,subset(mydata_size,year==2017))
-totalh1_2017<-lm(totalh~temp1,subset(mydata_size,year==2017))
-```
-
-```{r}
-summ(area1_2017)
-summ(maxh1_2017)
-summ(medianh1_2017)
-summ(totalh1_2017)
-```
-
-Marginally significant (p=0.06) negative effect of temperature on median height. Significant positive effect of temperature on total height, but I am not sure this variable is OK to use.
-
-## Model diagnostics
-
-```{r}
-simulationOutput_medianh1_2017<-simulateResiduals(fittedModel=medianh1_2017,
-                                                  n=5000)
-```
-
-qq-plot and plot of residuals vs. predicted:
-
-```{r fig.height=4, fig.width=7}
-plot(simulationOutput_medianh1_2017)
-```
-
-Residuals against temperature
-
-```{r}
-plotResiduals(simulationOutput_medianh1_2017,
-     form = subset(mydata_size,year==2017&!is.na(medianh))$temp1)
-```
-
-# Both years
-
-```{r}
-area1<-lm(area~temp1,mydata_size)
-maxh1<-lm(maxh~temp1,mydata_size)
-medianh1<-lm(medianh~temp1,mydata_size)
-totalh1<-lm(totalh~temp1,mydata_size)
-```
-
-```{r}
-summ(area1)
-summ(maxh1)
-summ(medianh1)
-summ(totalh1)
-```
-
-Significant negative effect of temperature on median height.
-
-## Model diagnostics
-
-```{r}
-simulationOutput_medianh1<-simulateResiduals(fittedModel=medianh1,
-                                                  n=5000)
-```
-
-qq-plot and plot of residuals vs. predicted:
-
-```{r fig.height=4, fig.width=7}
-plot(simulationOutput_medianh1)
-```
-
-Residuals against temperature
-
-```{r}
-plotResiduals(simulationOutput_medianh1,
-     form = subset(mydata_size,!is.na(medianh))$temp1)
-```
 
 # 3. Effect of temperature on fitness
 
@@ -535,20 +530,13 @@ plot(simulationOutput_fitness_2018_5)
 
 Some problems but maybe not so bad. Need to look a bit more into this later.
 
-# Figure 2: Effects of temperature on ffd, size and fitness in 2018
+# Figure 3: Effects of temperature on ffd, size and fitness in 2018
 
 Model predictions ffd : based on models FFD_2017_1 (with quadratic term of ffd) and FFD_2018_2 (without quadratic term of ffd).
 
 ```{r}
 predict_FFD_2017<-ggpredict(FFD_2017_1,terms = "temp [all]")
 predict_FFD_2018<-ggpredict(FFD_2018_2,terms = "temp [all]")
-```
-
-Model predictions size : based on models medianh1_2017 and medianh1_2018.
-
-```{r}
-predict_size_2017<-ggpredict(medianh1_2017,terms = "temp1 [all]")
-predict_size_2018<-ggpredict(medianh1_2018,terms = "temp1 [all]")
 ```
 
 Model predictions fitness : based on models fitness_2017_5 and fitness_2018_5.
@@ -559,8 +547,8 @@ predict_fitness_2018<-ggpredict(fitness_2018_5,terms = "temp [all]")
 ```
 
 
-```{r fig.height=4, fig.width=12, message=FALSE, warning=FALSE}
-fig2<-
+```{r fig.height=4, fig.width=8, message=FALSE, warning=FALSE}
+fig3<-
   grid.arrange(
     # ffd
     ggplot(subset(mydata,year==2018),aes(x=temp,y=ffd))+
@@ -571,19 +559,7 @@ fig2<-
       geom_line(data=predict_FFD_2018,
                 aes(x=x,y=predicted),size=1,color="black")+
       geom_point(size=2,alpha=0.2)+
-      ggtitle("A)")+theme(plot.title=element_text(hjust=-0.22,vjust=-3))+
-      theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")),
-    #size
-    ggplot(subset(mydata_size,year==2018),aes(x=temp1,y=medianh))+
-      xlab("Soil temperature (ºC)")+ylab("Size (cm)")+
-      my_theme()+
-      geom_ribbon(data=predict_size_2018,
-                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
-                  fill="grey",alpha=0.7)+
-      geom_line(data=predict_size_2018,
-                aes(x=x,y=predicted),size=1,color="black")+
-      geom_point(size=2,alpha=0.2)+
-      ggtitle("B)")+theme(plot.title=element_text(hjust=-0.22,vjust=-3))+
+      ggtitle("A)")+theme(plot.title=element_text(hjust=-0.20,vjust=-3))+
       theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")),
     # fitness
     ggplot(subset(mydata,year==2018),aes(x=temp,y=nseed))+
@@ -595,16 +571,16 @@ fig2<-
       geom_line(data=predict_fitness_2018,
                 aes(x=x,y=predicted),size=1,color="black")+
       geom_point(size=2,alpha=0.2)+
-      ggtitle("C)")+theme(plot.title=element_text(hjust=-0.22,vjust=-3))+
+      ggtitle("B)")+theme(plot.title=element_text(hjust=-0.20,vjust=-3))+
       theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")),
-    ncol=3)
-ggsave(filename="output/figures/fig2.tiff",plot=fig2,
-       width=30,height=9,units="cm",dpi=300)
+    ncol=2)
+ggsave(filename="output/figures/fig3.tiff",plot=fig3,
+       width=20,height=8,units="cm",dpi=300)
 ```
 
 # Figure S1: Effects of temperature on ffd, size and fitness in 2017
 
-```{r fig.height=4, fig.width=12, message=FALSE, warning=FALSE}
+```{r fig.height=4, fig.width=8, message=FALSE, warning=FALSE}
 figS1<-
   grid.arrange(
     # ffd
@@ -616,19 +592,7 @@ figS1<-
       geom_line(data=predict_FFD_2017,
                 aes(x=x,y=predicted),size=1,color="black")+
       geom_point(size=2,alpha=0.2)+
-      ggtitle("A)")+theme(plot.title=element_text(hjust=-0.22,vjust=-3))+
-      theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")),
-    #size
-    ggplot(subset(mydata_size,year==2017),aes(x=temp1,y=medianh))+
-      xlab("Soil temperature (ºC)")+ylab("Size (cm)")+
-      my_theme()+
-      geom_ribbon(data=predict_size_2017,
-                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
-                  fill="grey",alpha=0.7)+
-      geom_line(data=predict_size_2017,
-                aes(x=x,y=predicted),size=1,color="black")+
-      geom_point(size=2,alpha=0.2)+
-      ggtitle("B)")+theme(plot.title=element_text(hjust=-0.22,vjust=-3))+
+      ggtitle("A)")+theme(plot.title=element_text(hjust=-0.24,vjust=-3))+
       theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")),
     # fitness
     ggplot(subset(mydata,year==2017),aes(x=temp,y=nseed))+
@@ -640,224 +604,16 @@ figS1<-
       geom_line(data=predict_fitness_2017,
                 aes(x=x,y=predicted),size=1,color="black")+
       geom_point(size=2,alpha=0.2)+
-      ggtitle("C)")+theme(plot.title=element_text(hjust=-0.22,vjust=-3))+
+      ggtitle("B)")+theme(plot.title=element_text(hjust=-0.20,vjust=-3))+
       theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")),
-    ncol=3)
+    ncol=2)
 ggsave(filename="output/figures/figS1.tiff",plot=figS1,
-       width=30,height=9,units="cm",dpi=300)
-```
-
-# 4. How useful soil temperature is as a cue for air temperature
-
-Do correlations between soil and air temperature vary with soil temperature?
-
-We test this using logger pairs.
-
-After looking at plots from individual pairs of loggers, make a new variable pair_problem:
-- 0 = no problem
-- 1 = some problems (remove)
-
-Use only logger pairs with no problems (53 pairs out of 73): pairs 1-4,9,11,13-16,21-62,70.
-
-Most loggers end up on June 6th, so using data until June 5th.
-
-Using pairs of loggers where above and belowground logger are at less than 2 m distance.
-
-```{r}
-logger_data_pairs<-logger_data_pairs%>%
-  mutate(pair_problem=ifelse(pair%in%c(1:4,9,11,13:16,21:62,70),0,1))%>%
-  filter(pair_problem==0)%>% # remove pairs with problems
-  mutate(date=date(datetime))%>%
-  filter(!is.na(date))%>% # remove records with no info on date
-  filter(datetime<"2018-06-06")%>% # keep only data until June 5
-  filter(dist<2) # keep logger pairs with < 2 m distance
-```
-
-```{r}
-length(unique(logger_data_pairs$logger_nr))
-length(unique(subset(logger_data_pairs,species=="cer")$logger_nr))
-```
-
-68 loggers (34 pairs), of which 32 loggers in Cerastium plants, and 36 loggers in other plants.
-
-## Period April-May-June
-
-For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the period April-May-June. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) **for the same period (April-May-June)**.
-
-Linear models testing the effect of soil temperature on correlations between soil and air temperature:
-
-```{r message=FALSE, warning=FALSE}
-(logger_data_pairs%>%
-     mutate(month = month(datetime))%>% # new variable "month"
-     filter(month==4|month==5|month==6)%>% # keep data from april-june
-     group_by(date,pair,above_below)%>% 
-     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
-               plot=first(plot))%>% 
-   #calculate mean, max and min of air and soil temperature 
-     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
-     group_by(pair)%>%
-     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
-               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
-               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"),
-               plot=first(plot))%>%
-   # Calculate correlations air-soil temperatures
-     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
-                  names_to="measure",values_to="corr")%>%
-  left_join(logger_data_pairs%>%
-                 mutate(month = month(datetime))%>%
-                 filter(month==4|month==5|month==6)%>%
-                 filter(above_below=="B")%>%
-                 group_by(pair)%>%
-              summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
-  # calculate mean soil temperature for april-june
-  group_by(measure)%>%
-  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
-  unnest(fitcorr)%>%
-  kable(digits=5)
-```
-
-## May only
-
-For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the month of May. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) **for the same period (May)**.
-
-Linear models testing the effect of soil temperature on correlations between soil and air temperature:
-
-```{r message=FALSE, warning=FALSE}
-(logger_data_pairs%>%
-     mutate(month = month(datetime))%>% # new variable "month"
-     filter(month==5)%>% # keep data from may
-     group_by(date,pair,above_below)%>% 
-     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
-               plot=first(plot))%>% 
-   #calculate mean, max and min of air and soil temperature 
-     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
-     group_by(pair)%>%
-     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
-               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
-               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"),
-               plot=first(plot))%>%
-   # Calculate correlations air-soil temperatures
-     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
-                  names_to="measure",values_to="corr")%>%
-  left_join(logger_data_pairs%>%
-                 mutate(month = month(datetime))%>%
-                 filter(month==5)%>%
-                 filter(above_below=="B")%>%
-                 group_by(pair)%>%
-              summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
-  # calculate mean soil temperature for april-june
-  group_by(measure)%>%
-  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
-  unnest(fitcorr)%>%
-  kable(digits=5)
-```
-
-## Figure 3: Correlations soil-air temperature vs soil temperature
-
-```{r fig.height=6, fig.width=12, message=FALSE, warning=FALSE}
-plot1<-(logger_data_pairs%>%
-          mutate(month = month(datetime))%>% # new variable "month"
-          filter(month==5)%>% # keep data from may
-          group_by(date,pair,above_below)%>% 
-          summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
-                    plot=first(plot))%>% 
-          #calculate mean, max and min of air and soil temperature 
-          pivot_wider(names_from="above_below",
-                      values_from=c("mean","max","min"))%>%
-          group_by(pair)%>%
-          summarise(corr_airsoil_mean=cor(mean_A,mean_B,
-                                          use="pairwise.complete.obs"),
-                    corr_airsoil_max=cor(max_A,max_B,
-                                         use="pairwise.complete.obs"),
-                    corr_airsoil_min=cor(min_A,min_B,
-                                         use="pairwise.complete.obs"),
-                    plot=first(plot))%>%
-          # Calculate correlations air-soil temperatures
-          pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
-                       names_to="measure",values_to="corr")%>%
-          left_join(logger_data_pairs%>%
-                      mutate(month = month(datetime))%>%
-                      filter(month==5)%>%
-                      filter(above_below=="B")%>%
-                      group_by(pair)%>%
-                      summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
-  # calculate mean soil temperature for april-june
-  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure,fill=measure))+
-  geom_smooth(method="lm",size=1)+geom_point(size=2,alpha=0.5)+
-  xlab("Mean soil temperature")+
-  ylab("Correlation coefficient\nsoil-air temperature")+
-  my_theme()+ggtitle("A) May")+
-  theme(axis.title.y=element_blank())
-plot2<-(logger_data_pairs%>%
-          mutate(month = month(datetime))%>% # new variable "month"
-          filter(month==4|month==5|month==6)%>% # keep data from april-june
-          group_by(date,pair,above_below)%>% 
-          summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp),
-                    plot=first(plot))%>% 
-          #calculate mean, max and min of air and soil temperature 
-          pivot_wider(names_from="above_below",
-                      values_from=c("mean","max","min"))%>%
-          group_by(pair)%>%
-          summarise(corr_airsoil_mean=cor(mean_A,mean_B,
-                                          use="pairwise.complete.obs"),
-                    corr_airsoil_max=cor(max_A,max_B,
-                                         use="pairwise.complete.obs"),
-                    corr_airsoil_min=cor(min_A,min_B,
-                                         use="pairwise.complete.obs"),
-                    plot=first(plot))%>%
-          # Calculate correlations air-soil temperatures
-          pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
-                       names_to="measure",values_to="corr")%>%
-          left_join(logger_data_pairs%>%
-                      mutate(month = month(datetime))%>%
-                      filter(month==4|month==5|month==6)%>%
-                      filter(above_below=="B")%>%
-                      group_by(pair)%>%
-                      summarise(meansoiltemp=mean(temp),dist=first(dist))))%>%
-  # calculate mean soil temperature for april-june
-  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure,fill=measure))+
-  geom_smooth(method="lm",size=1)+geom_point(size=2,alpha=0.5)+
-  xlab("Mean soil temperature")+
-  ylab("Correlation coefficient\nsoil-air temperature")+
-  my_theme()+ggtitle("B) April-June")+  
-  theme(axis.title.y=element_blank(),axis.text.y=element_text(color="white"))
-fig3<-grid.arrange(plot1,plot2,ncol=2,
-             left=textGrob("Correlation coefficient\nsoil-air temperature",
-                           rot=90,gp=gpar(fontsize=16,font=6)))
-ggsave(filename="output/figures/fig3.tiff",plot=fig3,
-       width=20,height=10,units="cm",dpi=300)
+       width=20,height=8,units="cm",dpi=300)
 ```
 
 # Possible Appendix: Are instantaneous measures of soil temperature representative for the conditions during the entire spring/growing season?
 
 Correlations logger temperature - instant temperature
-
-## May
-
-For each logger\_nr, get mean temperature during May 2017 and compare with temp\_term (which was measured with a thermometer at 10 cm depth on May 2017):
-
-```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=5}
-maytemps<-logger_data%>%
-  mutate(month = month(datetime)) %>%
-  filter(month==5)%>%
-  filter(above_below=="B")%>%
-  group_by(logger_nr) %>%
-  summarize(meanmay_logger=mean(temp),temp_term=mean(temp_term))
-ggplot(maytemps,aes(x=temp_term,y=meanmay_logger))+
-  geom_smooth(method="lm",size=1,color="black")+geom_point(size=2,alpha=0.2)+
-  geom_abline(lty="dashed",alpha=0.8)+
-  xlab("Instant soil temperature measured in May")+
-  ylab("Mean temperature of May\nfrom logger data")+my_theme()
-summ(lm(meanmay_logger~temp_term,maytemps))
-ggsave(filename="output/figures/appendix.tiff",width=10,height=8,
-       units="cm",dpi=300)
-```
-
-Correlation mean temperature of may from logger data (only belowground loggers) and soil temperature measured in may with thermometer:
-
-```{r}
-with(maytemps,cor(meanmay_logger,temp_term))
-```
 
 ## April-June
 
@@ -887,7 +643,7 @@ Correlation mean temperature from logger data (only belowground loggers) and soi
 with(alltemps,cor(mean_logger,temp_term))
 ```
 
-# 5. Effect of temperature on selection on FFD
+# 4. Effect of temperature on selection on FFD
 
 ```{r echo=TRUE}
 selection_2017_1<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2)+nfl_std,
@@ -1151,7 +907,7 @@ ggsave(filename="output/figures/figS2.tiff",width=10,height=8,
        units="cm",dpi=300)
 ```
 
-# 6. Effect of temperature on the relationship absolute fitness-FFD
+# 5. Effect of temperature on the relationship absolute fitness-FFD
 
 ```{r echo=TRUE}
 selectionabs_2017_1<-lm(nseed~ffd*temp+ffd*I(temp^2)+log(nfl),
@@ -1311,8 +1067,6 @@ BCIs_selection_2018_abs
 ```
 
 The significances according to the BCa intervals are similar to the ones given in the model summary.
-
-
 
 ```{r include=FALSE}
 sessionInfo()
