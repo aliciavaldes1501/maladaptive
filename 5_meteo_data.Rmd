@@ -1,0 +1,367 @@
+---
+title: "Maladaptive plastic responses of flowering time to geothermal heating (Cerastium 2)"
+subtitle: "Analyses meteorological data"
+author : "Alicia Valdés"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+options(tibble.width = Inf)
+```
+
+```{r load packages, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(knitr)
+library(gridExtra)
+library(DHARMa)
+library(RColorBrewer)
+library(broom)
+library(ggpubr)
+library(jtools)
+library(kableExtra)
+library(ggeffects)
+library(MuMIn)
+library(MASS)
+library(segmented)
+library(effects)
+library(purrr)
+library(lubridate)
+library(ggforce)
+library(lmtest)
+library(car)
+library(viridis)
+library(ggrepel)
+library(grid)
+library(timetk)
+```
+
+```{r Define ggplot themes and palettes, include=FALSE}
+my_theme <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(legend.position="none")+theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+my_theme_legend <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+myPalette <- colorRampPalette(brewer.pal(11, "YlOrRd"))
+```
+
+```{r, include=FALSE}
+set_summ_defaults(digits = 3)
+```
+
+```{r function to check for overdispersion, include=FALSE}
+overdisp_fun <- function(model) {
+    rdf <- df.residual(model)
+    rp <- residuals(model,type="pearson")
+    Pearson.chisq <- sum(rp^2)
+    prat <- Pearson.chisq/rdf
+    pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+    c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+```
+
+# Read data
+
+```{r}
+meteo_data<-read_delim("data/raw/meteorological_data/fyrirspurn_65309.txt",delim="\t")
+```
+
+# Data preparation
+
+```{r}
+meteo_data<-meteo_data%>%
+  mutate(station=STOD,date=DAGS,temp=T,max_temp_h=TX,min_temp_h=TN,humidity=RH,
+         windspeed=F,hi_windspeed_h=FX,hi_3sec_windspeed=FG,windir=DV)%>%
+  dplyr::select(-(STOD:FV))%>%
+  arrange(date)%>%
+  mutate(year=as.factor(year(date)),day_of_year=as.numeric(format(date,"%j")))
+```
+
+# Plots
+
+```{r}
+ggplot(meteo_data,aes(x=day_of_year,y=temp,color=year))+geom_line()+
+  my_theme_legend()+ggtitle("Whole year, temperature")
+```
+
+```{r}
+ggplot(subset(meteo_data,day_of_year>=91&day_of_year<=212),
+       aes(x=day_of_year,y=temp,color=year))+geom_line()+my_theme_legend()+
+  ggtitle("April-July,temperature")+
+  geom_vline(xintercept=91,linetype="dotted")+
+  geom_vline(xintercept=121,linetype="dotted")+
+  geom_vline(xintercept=152,linetype="dotted")+
+  geom_vline(xintercept=182,linetype="dotted")+
+  geom_vline(xintercept=212,linetype="dotted")
+ggsave("output/figures/April-July_temperature.tiff",dpi=300)
+```
+
+```{r}
+ggplot(subset(meteo_data,day_of_year>=91&day_of_year<=212),
+       aes(x=day_of_year,y=max_temp_h,color=year))+geom_line()+my_theme_legend()+
+  ggtitle("April-July,max temperature per hour")+
+  geom_vline(xintercept=91,linetype="dotted")+
+  geom_vline(xintercept=121,linetype="dotted")+
+  geom_vline(xintercept=152,linetype="dotted")+
+  geom_vline(xintercept=182,linetype="dotted")+
+  geom_vline(xintercept=212,linetype="dotted")
+ggsave("output/figures/April-July_max.tiff",dpi=300)
+```
+
+```{r}
+ggplot(subset(meteo_data,day_of_year>=91&day_of_year<=212),
+       aes(x=day_of_year,y=min_temp_h,color=year))+geom_line()+my_theme_legend()+
+  ggtitle("April-July,min temperature per hour")+
+  geom_vline(xintercept=91,linetype="dotted")+
+  geom_vline(xintercept=121,linetype="dotted")+
+  geom_vline(xintercept=152,linetype="dotted")+
+  geom_vline(xintercept=182,linetype="dotted")+
+  geom_vline(xintercept=212,linetype="dotted")
+ggsave("output/figures/April-July_min.tiff",dpi=300)
+```
+
+# Compare montly temperatures
+
+```{r}
+meteo_data<-meteo_data%>%mutate(month=month(date))
+```
+
+```{r}
+model_april_temp<-lm(temp~year,data=subset(meteo_data,month==4))
+model_may_temp<-lm(temp~year,data=subset(meteo_data,month==5))
+model_june_temp<-lm(temp~year,data=subset(meteo_data,month==6))
+model_july_temp<-lm(temp~year,data=subset(meteo_data,month==7))
+```
+
+```{r}
+summ(model_april_temp) # *, >2018
+summ(model_may_temp) # *, <2018
+summ(model_june_temp) # *, <2018
+summ(model_july_temp) # p=0.06 (<2018)
+```
+
+```{r}
+plot(ggpredict(model_april_temp))
+plot(ggpredict(model_may_temp))
+plot(ggpredict(model_june_temp))
+plot(ggpredict(model_july_temp))
+```
+
+```{r}
+model_april_max<-lm(max_temp_h~year,data=subset(meteo_data,month==4)) 
+model_may_max<-lm(max_temp_h~year,data=subset(meteo_data,month==5)) 
+model_june_max<-lm(max_temp_h~year,data=subset(meteo_data,month==6)) 
+model_july_max<-lm(max_temp_h~year,data=subset(meteo_data,month==7)) 
+```
+
+```{r}
+summ(model_april_max) # *, >2018
+summ(model_may_max) # *, <2018
+summ(model_june_max) # *, <2018
+summ(model_july_max)# ns
+```
+
+```{r}
+plot(ggpredict(model_april_max))
+plot(ggpredict(model_may_max))
+plot(ggpredict(model_june_max))
+plot(ggpredict(model_july_max))
+```
+
+```{r}
+model_april_min<-lm(min_temp_h~year,data=subset(meteo_data,month==4)) 
+model_may_min<-lm(min_temp_h~year,data=subset(meteo_data,month==5)) 
+model_june_min<-lm(min_temp_h~year,data=subset(meteo_data,month==6)) 
+model_july_min<-lm(min_temp_h~year,data=subset(meteo_data,month==7)) 
+```
+
+```{r}
+summ(model_april_min) # *, >2018
+summ(model_may_min) # *, <2018
+summ(model_june_min) # ns
+summ(model_july_min)# p=0.07 (<2018)
+```
+
+```{r}
+plot(ggpredict(model_april_min))
+plot(ggpredict(model_may_min))
+plot(ggpredict(model_june_min))
+plot(ggpredict(model_july_min))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Start, end and length of the growing season
+
+## Start of the GS
+
+Start date of the first 5-day period with mean daily temperatures over 5°C.
+
+```{r}
+# Check if there are missing dates
+date_range <- seq(min(meteo_data$date), max(meteo_data$date), by = 1) 
+date_range[!date_range %in% meteo_data$date] 
+# [1] "2018-05-15" is missing
+
+meteo_data<-meteo_data%>%add_row(station=31392,date=as.Date("2018-05-15"),
+                                 year=as.factor(2018),month=5)%>%
+  arrange(date)
+
+# Make the rolling function
+rolling_sum_5<-slidify(.f=sum,.period=5,.align="left",.partial=F)
+
+# Apply rolling Function
+meteo_data_GSstart<-meteo_data%>%mutate(temp_over_5=ifelse(temp>5,1,0))%>%
+  group_by(year)%>%
+  mutate(rolling_sum_5 = rolling_sum_5(temp_over_5))%>%
+  filter(rolling_sum_5==5) %>% 
+  filter(month==3|month==4|month==5|month==6)%>%
+  slice(1)
+meteo_data_GSstart
+```
+2017: May 2 (agrees with Bryndis calculation)
+2018: June 2 (does not agree with Bryndis calculation)
+
+## End of the GS
+
+When the 10-day running mean falls below 5°C.
+
+```{r}
+# Make the rolling function
+rolling_mean_10<-slidify(.f=mean,.period=10,.align="right",.partial=F)
+
+# Apply rolling Function
+meteo_data_GSend<-meteo_data%>%
+  group_by(year)%>%
+  mutate(rolling_mean_10 = rolling_mean_10(temp))%>%
+  group_by(year)%>%
+  filter(rolling_mean_10<5) %>% 
+  filter(month>6)%>%
+  slice(1)
+meteo_data_GSend
+```
+
+2017: October 6
+2018: September 20
+
+## Length of the GS
+
+```{r}
+meteo_data_GSend$date-meteo_data_GSstart$date
+```
+
+2017: 157 days
+2018: 110 days
+(difference of 157-110=47 days longer in 2017)
+
+# Number of days with freezing temperatures 
+
+Number of days with minimum temperatures (min_temp_h) lower than 0.
+
+## After GS start
+
+```{r}
+meteo_data%>%mutate(GSstart=as.Date(ifelse(year==2017,
+                                           meteo_data_GSstart$date[1],
+                                           meteo_data_GSstart$date[2])),
+                    GSend=as.Date(ifelse(year==2017,
+                                           meteo_data_GSend$date[1],
+                                           meteo_data_GSend$date[2])))%>%
+  filter(date>=GSstart&date<=GSend&min_temp_h<0)%>%
+  group_by(year)%>%
+  dplyr::select(date,min_temp_h)
+```
+
+3 days with freezing temperatures in spring 2017 after GS start.
+No days with freezing temperatures in spring 2018 after GS start (2 days with freezing temperatures in autumn before GS end).
+
+## In May
+
+```{r}
+meteo_data%>%filter(month==5&min_temp_h<0)%>%
+  group_by(year)%>%
+  dplyr::select(date,min_temp_h)%>%
+  summarise(count=n())
+```
+
+## In June
+
+```{r}
+meteo_data%>%filter(month==6&min_temp_h<0)%>%
+  group_by(year)%>%
+  dplyr::select(date,min_temp_h)%>%
+  summarise(count=n())
+```
+
+# Compare GS temperatures
+
+```{r}
+meteo_data%>%mutate(GSstart=as.Date(ifelse(year==2017,
+                                           meteo_data_GSstart$date[1],
+                                           meteo_data_GSstart$date[2])),
+                    GSend=as.Date(ifelse(year==2017,
+                                           meteo_data_GSend$date[1],
+                                           meteo_data_GSend$date[2])))%>%
+  filter(date>=GSstart&date<=GSend)%>%
+  lm(temp~year,data=.)%>%summary()
+meteo_data%>%mutate(GSstart=as.Date(ifelse(year==2017,
+                                           meteo_data_GSstart$date[1],
+                                           meteo_data_GSstart$date[2])),
+                    GSend=as.Date(ifelse(year==2017,
+                                           meteo_data_GSend$date[1],
+                                           meteo_data_GSend$date[2])))%>%
+  filter(date>=GSstart&date<=GSend)%>%
+  lm(min_temp_h~year,data=.)%>%summary()
+meteo_data%>%mutate(GSstart=as.Date(ifelse(year==2017,
+                                           meteo_data_GSstart$date[1],
+                                           meteo_data_GSstart$date[2])),
+                    GSend=as.Date(ifelse(year==2017,
+                                           meteo_data_GSend$date[1],
+                                           meteo_data_GSend$date[2])))%>%
+  filter(date>=GSstart&date<=GSend)%>%
+  ggplot(aes(day_of_year,temp,color=year))+geom_line()+
+  my_theme_legend()+ggtitle("Growing season, mean temperature")
+meteo_data%>%mutate(GSstart=as.Date(ifelse(year==2017,
+                                           meteo_data_GSstart$date[1],
+                                           meteo_data_GSstart$date[2])),
+                    GSend=as.Date(ifelse(year==2017,
+                                           meteo_data_GSend$date[1],
+                                           meteo_data_GSend$date[2])))%>%
+  filter(date>=GSstart&date<=GSend)%>%
+  ggplot(aes(day_of_year,min_temp_h,color=year))+geom_line()+
+  my_theme_legend()+ggtitle("Growing season, min temperature")
+```
+
+No differences in GS temperatures.
+
+# Session info
+
+```{r include=FALSE}
+sessionInfo()
+```
+
