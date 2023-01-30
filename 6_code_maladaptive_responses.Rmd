@@ -62,6 +62,8 @@ set_summ_defaults(digits = 3)
 
 # Read data
 
+The location of these files would need to be changed.
+
 ```{r}
 data_plants<-read_csv("data/clean/data_plants.csv")
 logger_data<-read_csv("data/clean/logger_data.csv")

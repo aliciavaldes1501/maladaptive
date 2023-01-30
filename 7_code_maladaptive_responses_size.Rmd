@@ -1,0 +1,1548 @@
+---
+title: "Maladaptive plastic responses of flowering time to geothermal heating"
+subtitle: "Code for analyses in the paper (trying analyses with size)"
+author : "Alicia Valdés"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r load packages, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(knitr)
+library(gridExtra)
+library(DHARMa)
+library(RColorBrewer)
+library(broom)
+library(ggpubr)
+library(jtools)
+library(kableExtra)
+library(ggeffects)
+library(MuMIn)
+library(MASS)
+library(segmented)
+library(effects)
+library(purrr)
+library(lubridate)
+library(ggforce)
+library(lmtest)
+library(car)
+library(viridis)
+library(ggrepel)
+library(grid)
+```
+
+```{r Define ggplot themes and palettes, include=FALSE}
+my_theme <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(legend.position="none")+theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+my_theme_legend <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+myPalette <- colorRampPalette(brewer.pal(11, "YlOrRd"))
+```
+
+```{r, include=FALSE}
+set_summ_defaults(digits = 3)
+```
+
+# Read data and join size data
+
+The location of these files would need to be changed.
+
+```{r}
+data_plants<-read_csv("data/clean/data_plants.csv")
+size_2017<-read.table("data/edited/size_2017.csv",header=T,sep=",",
+                      dec=".")
+size_2017$roset_dm_1<-as.numeric(size_2017$roset_dm_1)
+size_2017$roset_dm_2<-as.numeric(size_2017$roset_dm_2)
+size_2017$n_stems<-as.integer(size_2017$n_stems)
+size_2017$max_h<-as.numeric(size_2017$max_h)
+size_2017$med_h<-as.numeric(size_2017$med_h)
+size_2018<-read.table("data/edited/size_2018.csv",header=T,sep=",",
+                      dec=".") 
+size_2018$med_h<-as.numeric(size_2018$med_h)
+data_plants<-left_join(left_join(data_plants,size_2017),size_2018)
+logger_data<-read_csv("data/clean/logger_data.csv")
+logger_data_pairs<-read_csv("data/clean/logger_data_pairs.csv")
+```
+
+# Correlation between instant measures of soil temperature and mean soil temperature during the period April 1st – June 5th recorded by loggers 
+
+For each logger\_nr, get mean temperature during April-June and compare with temp\_term (which was measured with a thermometer at 10 cm depth on May 2017):
+
+```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=5}
+with(logger_data%>%
+       mutate(month = month(datetime)) %>%
+       filter(month==4|month==5|month==6)%>%
+       filter(above_below=="B")%>%
+       mutate(date=date(datetime))%>%
+       filter(!is.na(date))%>% # remove records with no info on date
+       filter(datetime<"2018-06-06")%>% # keep only data until June 5
+       group_by(logger_nr) %>%
+       summarize(mean_logger=mean(temp),temp_term=mean(temp_term)),
+     cor.test(mean_logger,temp_term))
+```
+
+# Is soil temperature more weakly correlated with air temperature in warmer soils?
+
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the period May or April-May-June. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) for the same period (April-May-June).
+
+## May
+
+```{r}
+data_corr<-(logger_data_pairs%>%
+     mutate(month = month(datetime),date=date(datetime))%>% 
+              # new variables "month" and "date"
+     filter(month==5)%>% # keep data from may
+     group_by(date,pair,above_below)%>% 
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+   #calculate mean, max and min of air and soil temperature 
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"))%>%
+   # Calculate correlations air-soil temperatures
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==5)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp))))
+  # calculate mean soil temperature for may
+```
+
+```{r}
+model_mean<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_mean"))
+model_max<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_max"))
+model_min<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_min"))
+```
+
+Predictions of correlations for minimum and maximum temperatures:
+
+```{r}
+ggpredict(model_mean,terms="meansoiltemp[minmax]") 
+ggpredict(model_max,terms="meansoiltemp[minmax]") 
+ggpredict(model_min,terms="meansoiltemp[minmax]") 
+```
+
+### Figure 2: Correlations soil-air temperature vs soil temperature
+
+```{r fig.height=3, fig.width=4, message=FALSE, warning=FALSE}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", 
+               "#D55E00", "#CC79A7")
+fig2<-(logger_data_pairs%>%
+          mutate(month = month(datetime),date=date(datetime))%>% 
+         # new variables "month" and "date"
+          filter(month==5)%>% # keep data from may
+          group_by(date,pair,above_below)%>% 
+          summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+          #calculate mean, max and min of air and soil temperature 
+          pivot_wider(names_from="above_below",
+                      values_from=c("mean","max","min"))%>%
+          group_by(pair)%>%
+          summarise(corr_airsoil_mean=cor(mean_A,mean_B,
+                                          use="pairwise.complete.obs"),
+                    corr_airsoil_max=cor(max_A,max_B,
+                                         use="pairwise.complete.obs"),
+                    corr_airsoil_min=cor(min_A,min_B,
+                                         use="pairwise.complete.obs"))%>%
+          # Calculate correlations air-soil temperatures
+          pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                       names_to="measure",values_to="corr")%>%
+          left_join(logger_data_pairs%>%
+                      mutate(month = month(datetime))%>%
+                      filter(month==5)%>%
+                      filter(above_below=="B")%>%
+                      group_by(pair)%>%
+                      summarise(meansoiltemp=mean(temp))))%>%
+  # calculate mean soil temperature for may
+  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure,fill=measure,shape=measure))+
+  geom_smooth(method="lm",size=1)+geom_point(size=2,alpha=0.5)+
+  xlab("Mean soil temperature (ºC)")+
+  ylab("Correlation coefficient\nsoil-air temperature")+
+  my_theme()+scale_fill_manual(values=cbPalette)+
+  scale_colour_manual(values=cbPalette)+
+  scale_shape_manual(values=c(15,16,17)) +     
+  geom_text_repel(data=. %>% filter(corr<0),aes(label=pair))
+fig2
+ggsave(filename="output/figures/fig2.tiff",plot=fig2,
+       width=12,height=10,units="cm",dpi=300)
+```
+
+### Appendix S3 (part 1)
+
+Linear models testing the effect of soil temperature on correlations between soil and air temperature (part of table in Appendix S3):
+
+```{r message=FALSE, warning=FALSE}
+(logger_data_pairs%>%
+     mutate(month = month(datetime),date=date(datetime))%>% 
+         # new variables "month" and "date"
+     filter(month==5)%>% # keep data from may
+     group_by(date,pair,above_below)%>% 
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+   #calculate mean, max and min of air and soil temperature 
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"))%>%
+   # Calculate correlations air-soil temperatures
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==5)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp))))%>%
+  # calculate mean soil temperature for may
+  group_by(measure)%>%
+  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
+  unnest(fitcorr)%>%
+  kable(digits=5)
+```
+
+## April-May_june
+
+### Appendix S2: Correlations soil-air temperature vs soil temperature (April-June)
+
+```{r fig.height=3, fig.width=4, message=FALSE, warning=FALSE}
+AppS2<-(logger_data_pairs%>%
+          mutate(month = month(datetime),date=date(datetime))%>%
+          # new variables "month" and "date"
+          filter(month==4|month==5|month==6)%>% # keep data from april-june
+          group_by(date,pair,above_below)%>% 
+          summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+          #calculate mean, max and min of air and soil temperature 
+          pivot_wider(names_from="above_below",
+                      values_from=c("mean","max","min"))%>%
+          group_by(pair)%>%
+          summarise(corr_airsoil_mean=cor(mean_A,mean_B,
+                                          use="pairwise.complete.obs"),
+                    corr_airsoil_max=cor(max_A,max_B,
+                                         use="pairwise.complete.obs"),
+                    corr_airsoil_min=cor(min_A,min_B,
+                                         use="pairwise.complete.obs"))%>%
+          # Calculate correlations air-soil temperatures
+          pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                       names_to="measure",values_to="corr")%>%
+          left_join(logger_data_pairs%>%
+                      mutate(month = month(datetime))%>%
+                      filter(month==4|month==5|month==6)%>%
+                      filter(above_below=="B")%>%
+                      group_by(pair)%>%
+                      summarise(meansoiltemp=mean(temp))))%>%
+  # calculate mean soil temperature for april-june
+  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure,fill=measure,shape=measure))+
+  geom_smooth(method="lm",size=1)+geom_point(size=2,alpha=0.5)+
+  xlab("Mean soil temperature (ºC)")+
+  ylab("Correlation coefficient\nsoil-air temperature")+
+  my_theme()+scale_fill_manual(values=cbPalette)+
+  scale_colour_manual(values=cbPalette)+
+  scale_shape_manual(values=c(15,16,17)) + 
+  geom_text_repel(data=. %>% filter(corr<0),aes(label=pair))
+AppS2
+ggsave(filename="output/figures/AppS2.tiff",plot=AppS2,
+       width=12,height=10,units="cm",dpi=300)
+```
+
+### Appendix S3 (part 2)
+
+Linear models testing the effect of soil temperature on correlations between soil and air temperature (part of table in Appendix S3):
+
+```{r message=FALSE, warning=FALSE}
+(logger_data_pairs%>%
+     mutate(month = month(datetime),date=date(datetime))%>%
+          # new variables "month" and "date"
+     filter(month==4|month==5|month==6)%>% # keep data from april-june
+     group_by(date,pair,above_below)%>% 
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+   #calculate mean, max and min of air and soil temperature 
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"))%>%
+   # Calculate correlations air-soil temperatures
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==4|month==5|month==6)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp))))%>%
+  # calculate mean soil temperature for april-june
+  group_by(measure)%>%
+  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
+  unnest(fitcorr)%>%
+  kable(digits=5)
+```
+
+# Hypothesis 1: Effect of temperature on FFD
+
+Models including quadratic effects of ffd.
+
+```{r echo=TRUE}
+FFD_2017_1<-lm(ffd~temp+I(temp^2),subset(data_plants,year==2017))
+summ(FFD_2017_1,vif=T)
+FFD_2018_1<-lm(ffd~temp+I(temp^2),subset(data_plants,year==2018))
+summ(FFD_2018_1,vif=T)
+```
+
+Quadratic term of ffd significant in 2017 but not in 2018. Refit model for 2018 withouth quadratic term of ffd.
+
+```{r echo=TRUE}
+FFD_2018_2<-lm(ffd~temp,subset(data_plants,year==2018))
+summ(FFD_2018_2)
+```
+
+Predictions of ffd for minimum and maximum temperatures:
+
+```{r}
+ggpredict(FFD_2017_1,terms="temp[minmax]")
+# 180.75-173.63=8 days earlier on warmer soils
+ggpredict(FFD_2018_2,terms="temp[minmax]") 
+# 191.36-158.74=33 days earlier on warmer soils
+```
+
+## Single analysis for both years
+
+```{r echo=TRUE}
+data_plants$year_fct<-as.factor(data_plants$year)
+FFD_1<-lm(ffd~temp*year_fct,data_plants)
+summ(FFD_1,vif=T)
+```
+
+```{r}
+plot(ggpredict(FFD_1,terms=c("temp","year_fct")),add.data=T)
+```
+
+Predictions of ffd for minimum and maximum temperatures:
+
+```{r}
+range(subset(data_plants,year==2017)$temp)
+range(subset(data_plants,year==2018)$temp)
+ggpredict(FFD_1,terms=c("temp[4.1,45.5]","year_fct[2017]"))
+# 179.26-165.52=14 days earlier on warmer soils
+ggpredict(FFD_1,terms=c("temp[3.5,34.0]","year_fct[2018]"))
+# 191.36-158.74=45 days earlier on warmer soils
+```
+
+# Hypothesis 2: Effect of temperature on fitness
+
+## Models with flower number as covariate
+
+GLMs with negative binomial distribution
+
+```{r echo=TRUE}
+fitness_2017_4<-glm.nb(n_seed_round~temp+I(temp^2)+log(nfl),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_4,vif=T)
+fitness_2018_4<-glm.nb(n_seed_round~temp+I(temp^2)+log(nfl),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_4,vif=T)
+```
+
+Quadratic terms of temp not significant. Refit models without quadratic terms of temp.
+
+```{r echo=TRUE}
+fitness_2017_5<-glm.nb(n_seed_round~temp+log(nfl),subset(data_plants,year==2017))
+summ(fitness_2017_5,vif=T)
+fitness_2018_5<-glm.nb(n_seed_round~temp+log(nfl),subset(data_plants,year==2018))
+summ(fitness_2018_5,vif=T)
+```
+
+Predictions of fitness for minimum and maximum temperatures:
+
+```{r}
+ggpredict(fitness_2017_5,terms="temp[minmax]")
+ggpredict(fitness_2018_5,terms="temp[minmax]") 
+```
+
+## Models with size as covariate
+
+Calculate variables
+
+```{r}
+data_plants$ros_area <- with(data_plants,pi*roset_dm_1*roset_dm_2)
+data_plants$tot_h <- with(data_plants,med_h*n_stems)
+```
+
+### Size as maximum height
+
+GLMs with negative binomial distribution
+
+```{r echo=TRUE}
+fitness_2017_6<-glm.nb(n_seed_round~temp+I(temp^2)+log(max_h),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_6,vif=T)
+fitness_2018_6<-glm.nb(n_seed_round~temp+I(temp^2)+log(max_h),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_6,vif=T)
+```
+
+Quadratic terms of temp not significant. Refit models without quadratic terms of temp.
+
+```{r echo=TRUE}
+fitness_2017_7<-glm.nb(n_seed_round~temp+log(max_h),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_7,vif=T)
+fitness_2018_7<-glm.nb(n_seed_round~temp+log(max_h),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_7,vif=T)
+```
+
+### Size as median height
+
+GLMs with negative binomial distribution
+
+```{r echo=TRUE}
+fitness_2017_8<-glm.nb(n_seed_round~temp+I(temp^2)+log(med_h),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_8,vif=T)
+fitness_2018_8<-glm.nb(n_seed_round~temp+I(temp^2)+log(med_h),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_8,vif=T)
+```
+
+Quadratic terms of temp not significant. Refit models without quadratic terms of temp.
+
+```{r echo=TRUE}
+fitness_2017_9<-glm.nb(n_seed_round~temp+log(med_h),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_9,vif=T)
+fitness_2018_9<-glm.nb(n_seed_round~temp+log(med_h),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_9,vif=T)
+```
+
+### Size as rosette area (USE?)
+
+GLMs with negative binomial distribution
+
+```{r echo=TRUE}
+fitness_2017_10<-glm.nb(n_seed_round~temp+I(temp^2)+log(ros_area),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_10,vif=T)
+fitness_2018_10<-glm.nb(n_seed_round~temp+I(temp^2)+log(ros_area),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_10,vif=T)
+```
+
+Quadratic terms of temp not significant. Refit models without quadratic terms of temp.
+
+```{r echo=TRUE}
+fitness_2017_11<-glm.nb(n_seed_round~temp+log(ros_area),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_11,vif=T)
+fitness_2018_11<-glm.nb(n_seed_round~temp+log(ros_area),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_11,vif=T)
+```
+
+### Size as total height
+
+GLMs with negative binomial distribution
+
+```{r echo=TRUE}
+fitness_2017_12<-glm.nb(n_seed_round~temp+I(temp^2)+log(tot_h),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_12,vif=T)
+fitness_2018_12<-glm.nb(n_seed_round~temp+I(temp^2)+log(tot_h),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_12,vif=T)
+```
+
+Quadratic terms of temp not significant. Refit models without quadratic terms of temp.
+
+```{r echo=TRUE}
+fitness_2017_13<-glm.nb(n_seed_round~temp+log(tot_h),
+                       subset(data_plants,year==2017))
+summ(fitness_2017_13,vif=T)
+fitness_2018_13<-glm.nb(n_seed_round~temp+log(tot_h),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_13,vif=T)
+```
+
+## Models without covariates
+
+GLMs with negative binomial distribution
+
+```{r echo=TRUE}
+fitness_2017_14<-glm.nb(n_seed_round~temp+I(temp^2),
+                        subset(data_plants,year==2017))
+summ(fitness_2017_14,vif=T)
+fitness_2018_14<-glm.nb(n_seed_round~temp+I(temp^2),
+                       subset(data_plants,year==2018))
+summ(fitness_2018_14,vif=T)
+```
+
+Quadratic terms of temp not significant. Refit models without quadratic terms of temp.
+
+```{r echo=TRUE}
+fitness_2017_15<-glm.nb(n_seed_round~temp,subset(data_plants,year==2017))
+summ(fitness_2017_15)
+fitness_2018_15<-glm.nb(n_seed_round~temp,subset(data_plants,year==2018))
+summ(fitness_2018_15)
+```
+
+## Single analysis for both years
+
+### Flower number as covariate
+
+```{r echo=TRUE}
+fitness_1<-glm.nb(n_seed_round~(temp+I(temp^2))*year_fct+log(nfl),
+                      data_plants) # Quadratic term significant, keep
+summ(fitness_1,vif=T)
+```
+
+```{r}
+plot(ggpredict(fitness_1,terms=c("temp","year_fct")),add.data=T)
+```
+
+Predictions of fitness for minimum and maximum temperatures:
+
+```{r}
+range(subset(data_plants,year==2017)$temp)
+range(subset(data_plants,year==2018)$temp)
+ggpredict(fitness_1,terms=c("temp[4.1,45.5]","year_fct[2017]"))
+ggpredict(fitness_1,terms=c("temp[3.5,34.0]","year_fct[2018]"))
+```
+
+### Rosette area as covariate
+
+```{r echo=TRUE}
+fitness_2<-glm.nb(n_seed_round~temp*year_fct+log(ros_area),
+                  data_plants)
+summ(fitness_2,vif=T)
+```
+
+```{r}
+plot(ggpredict(fitness_2,terms=c("temp","year_fct")),add.data=T)
+```
+
+### Without covariates
+
+```{r echo=TRUE}
+fitness_3<-glm.nb(n_seed_round~temp*year_fct,
+                  data_plants)
+summ(fitness_3,vif=T)
+```
+
+```{r}
+plot(ggpredict(fitness_3,terms=c("temp","year_fct")),add.data=T)
+```
+
+# Figure 3: Effects of temperature on ffd and fitness
+
+Model prediction ffd : based on model FFD_1 (without quadratic term of ffd)
+
+```{r}
+predict_FFD<-ggpredict(FFD_1,terms=c("temp [all]","year_fct"))
+```
+
+Model prediction fitness : based on model fitness_1
+
+```{r}
+predict_fitness<-ggpredict(fitness_1,terms=c("temp [all]","year_fct"))
+```
+
+
+```{r fig.height=3, fig.width=8, message=FALSE, warning=FALSE}
+fig3<-
+  grid.arrange(
+    # ffd
+    ggplot(data_plants,aes(x=temp,y=ffd))+
+  xlab("Soil temperature (ºC)")+ylab("FFD\n(Day of year)")+my_theme()+
+  geom_point(aes(color=year_fct),size=2,alpha=0.2)+
+  geom_ribbon(data=subset(predict_FFD,group==2017&
+                          x>=min(subset(data_plants,year==2017)$temp)&
+                          x<=max(subset(data_plants,year==2017)$temp)),
+              aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=group),
+              alpha=0.5)+
+  geom_line(data=subset(predict_FFD,group==2017&
+                          x>=min(subset(data_plants,year==2017)$temp)&
+                          x<=max(subset(data_plants,year==2017)$temp)),
+            aes(x=x,y=predicted,color=group),size=1)+
+  geom_ribbon(data=subset(predict_FFD,group==2018&
+                            x>=min(subset(data_plants,year==2018)$temp)&
+                            x<=max(subset(data_plants,year==2018)$temp)),
+              aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=group),
+              alpha=0.5)+
+  geom_line(data=subset(predict_FFD,group==2018&
+                          x>=min(subset(data_plants,year==2018)$temp)&
+                          x<=max(subset(data_plants,year==2018)$temp)),
+            aes(x=x,y=predicted,color=group),size=1)+
+  ggtitle("A)")+theme(plot.title=element_text(hjust=-0.35,vjust=-3))+
+  theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm"))+
+  scale_fill_manual(values=cbPalette)+scale_color_manual(values=cbPalette),
+    # fitness
+    ggplot(data_plants,aes(x=temp,y=nseed))+
+      xlab("Soil temperature (ºC)")+ylab("Fitness\n(number of seeds)")+
+      my_theme()+
+      geom_point(aes(color=year_fct),size=2,alpha=0.2)+
+      geom_ribbon(data=subset(predict_fitness,group==2017&
+                          x>=min(subset(data_plants,year==2017)$temp)&
+                          x<=max(subset(data_plants,year==2017)$temp)),
+                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=group),
+                  alpha=0.5)+
+      geom_line(data=subset(predict_fitness,group==2017&
+                          x>=min(subset(data_plants,year==2017)$temp)&
+                          x<=max(subset(data_plants,year==2017)$temp)),
+                aes(x=x,y=predicted,color=group),size=1)+
+    geom_ribbon(data=subset(predict_fitness,group==2018&
+                          x>=min(subset(data_plants,year==2018)$temp)&
+                          x<=max(subset(data_plants,year==2018)$temp)),
+                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=group),
+                  alpha=0.5)+
+      geom_line(data=subset(predict_fitness,group==2018&
+                          x>=min(subset(data_plants,year==2018)$temp)&
+                          x<=max(subset(data_plants,year==2018)$temp)),
+                aes(x=x,y=predicted,color=group),size=1)+
+      ggtitle("B)")+theme(plot.title=element_text(hjust=-0.35,vjust=-3))+
+      theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm"))+
+      scale_fill_manual(values=cbPalette)+scale_color_manual(values=cbPalette)+
+      scale_y_continuous(trans='log10'),
+    ncol=2)
+ggsave(filename="output/figures/fig3.tiff",plot=fig3,
+       width=22,height=8,units="cm",dpi=300)
+```
+
+# Figure S1: Effects of temperature on ffd and fitness in 2017
+
+Model prediction ffd : based on model FFD_2017_1 (with quadratic term of ffd)
+
+```{r}
+predict_FFD_2017<-ggpredict(FFD_2017_1,terms = "temp [all]")
+```
+
+Model prediction fitness : based on model fitness_2017_5
+
+```{r}
+predict_fitness_2017<-ggpredict(fitness_2017_5,terms = "temp [all]")
+```
+
+
+```{r fig.height=3, fig.width=8, message=FALSE, warning=FALSE}
+figS1<-
+  grid.arrange(
+    # ffd
+    ggplot(subset(data_plants,year==2017),aes(x=temp,y=ffd))+
+      xlab("Soil temperature (ºC)")+ylab("FFD (Julian date)")+my_theme()+
+      geom_ribbon(data=predict_FFD_2017,
+                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+                  fill="grey",alpha=0.7)+
+      geom_line(data=predict_FFD_2017,
+                aes(x=x,y=predicted),size=1,color="black")+
+      geom_point(size=2,alpha=0.2)+
+      ggtitle("A)")+theme(plot.title=element_text(hjust=-0.24,vjust=-3))+
+      theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")),
+    # fitness
+    ggplot(subset(data_plants,year==2017),aes(x=temp,y=nseed))+
+      xlab("Soil temperature (ºC)")+ylab("Fitness (number of seeds)")+
+      my_theme()+
+      geom_ribbon(data=predict_fitness_2017,
+                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+                  fill="grey",alpha=0.7)+
+      geom_line(data=predict_fitness_2017,
+                aes(x=x,y=predicted),size=1,color="black")+
+      geom_point(size=2,alpha=0.2)+
+      ggtitle("B)")+theme(plot.title=element_text(hjust=-0.20,vjust=-3))+
+      theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")),
+    ncol=2)
+ggsave(filename="output/figures/figS1.tiff",plot=figS1,
+       width=20,height=8,units="cm",dpi=300)
+```
+
+# Hypothesis 3: Effect of temperature on selection on FFD
+
+## Models with flower number as covariate
+
+```{r echo=TRUE}
+selection_2017_1<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2)+nfl_std,
+                     subset(data_plants,year==2017))
+selection_2018_1<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2)+nfl_std,
+                     subset(data_plants,year==2018))
+summ(selection_2017_1)
+summ(selection_2018_1)
+```
+
+Quadratic terms of ffd not significant. Refit models withouth quadratic terms of ffd.
+
+```{r echo=TRUE}
+selection_2017_2<-lm(nseed_rel~ffd_std*temp+nfl_std,
+                     subset(data_plants,year==2017))
+selection_2018_2<-lm(nseed_rel~ffd_std*temp+nfl_std,
+                     subset(data_plants,year==2018))
+summ(selection_2017_2,vif=T)
+summ(selection_2018_2,vif=T)
+```
+
+### BCa intervals 
+
+Used for assessing significance.
+
+#### 2017
+
+```{r}
+# ffd
+slp <- function(selection_2017_2) coef(selection_2017_2)[2]
+b <- car::Boot(selection_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_2017_2) coef(selection_2017_2)[3]
+b <- car::Boot(selection_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# nfl
+slp <- function(selection_2017_2) coef(selection_2017_2)[4]
+b <- car::Boot(selection_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_2017_2) coef(selection_2017_2)[5]
+b <- car::Boot(selection_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2017 <- cbind(
+  rbind(ffd_ci_17[1,] ,temp_ci_17[1,], nfl_ci_17[1,], ffd_temp_ci_17[1,]),
+  rbind(ffd_ci_17[2,] ,temp_ci_17[2,], nfl_ci_17[2,], ffd_temp_ci_17[2,])
+)
+colnames(BCIs_selection_2017)<-c("lower","upper")
+rownames(BCIs_selection_2017) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2017,file="output/BCIs_selection_2017.RData")
+```
+
+```{r}
+BCIs_selection_2017
+```
+
+#### 2018
+
+```{r}
+# ffd
+slp <- function(selection_2018_2) coef(selection_2018_2)[2]
+b <- car::Boot(selection_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_2018_2) coef(selection_2018_2)[3]
+b <- car::Boot(selection_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# nfl
+slp <- function(selection_2018_2) coef(selection_2018_2)[4]
+b <- car::Boot(selection_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_2018_2) coef(selection_2018_2)[5]
+b <- car::Boot(selection_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2018 <- cbind(
+  rbind(ffd_ci_18[1,] ,temp_ci_18[1,], nfl_ci_18[1,], ffd_temp_ci_18[1,]),
+  rbind(ffd_ci_18[2,] ,temp_ci_18[2,], nfl_ci_18[2,], ffd_temp_ci_18[2,])
+)
+colnames(BCIs_selection_2018)<-c("lower","upper")
+rownames(BCIs_selection_2018) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2018,file="output/BCIs_selection_2018.RData")
+```
+
+```{r}
+BCIs_selection_2018
+```
+
+## Models with size (rosette area) as covariate
+
+```{r}
+data_plants$ros_area_std<-as.numeric(scale(log(data_plants$ros_area)))
+```
+
+```{r echo=TRUE}
+selection_2017_3<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2)+ros_area_std,
+                     subset(data_plants,year==2017))
+selection_2018_3<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2)+ros_area_std,
+                     subset(data_plants,year==2018))
+summ(selection_2017_3)
+summ(selection_2018_3)
+```
+
+Quadratic terms of ffd not significant. Refit models withouth quadratic terms of ffd.
+
+```{r echo=TRUE}
+selection_2017_4<-lm(nseed_rel~ffd_std*temp+ros_area_std,
+                     subset(data_plants,year==2017&!is.na(ros_area_std)))
+selection_2018_4<-lm(nseed_rel~ffd_std*temp+ros_area_std,
+                     subset(data_plants,year==2018&!is.na(ros_area_std)))
+summ(selection_2017_4)
+summ(selection_2018_4)
+```
+
+### BCa intervals 
+
+Used for assessing significance.
+
+#### 2017
+
+```{r}
+# ffd
+slp <- function(selection_2017_4) coef(selection_2017_4)[2]
+b <- car::Boot(selection_2017_4,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_2017_4) coef(selection_2017_4)[3]
+b <- car::Boot(selection_2017_4,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# size
+slp <- function(selection_2017_4) coef(selection_2017_4)[4]
+b <- car::Boot(selection_2017_4,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+size_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_2017_4) coef(selection_2017_4)[5]
+b <- car::Boot(selection_2017_4,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2017_size <- cbind(
+  rbind(ffd_ci_17[1,] ,temp_ci_17[1,], size_ci_17[1,], ffd_temp_ci_17[1,]),
+  rbind(ffd_ci_17[2,] ,temp_ci_17[2,], size_ci_17[2,], ffd_temp_ci_17[2,])
+)
+colnames(BCIs_selection_2017_size)<-c("lower","upper")
+rownames(BCIs_selection_2017_size) <- c("ffd","temp","size","ffd:temp")
+save(BCIs_selection_2017_size,file="output/BCIs_selection_2017_size.RData")
+```
+
+```{r}
+BCIs_selection_2017_size
+```
+
+#### 2018
+
+```{r}
+# ffd
+slp <- function(selection_2018_4) coef(selection_2018_4)[2]
+b <- car::Boot(selection_2018_4,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_2018_4) coef(selection_2018_4)[3]
+b <- car::Boot(selection_2018_4,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# size
+slp <- function(selection_2018_4) coef(selection_2018_4)[4]
+b <- car::Boot(selection_2018_4,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+size_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_2018_4) coef(selection_2018_4)[5]
+b <- car::Boot(selection_2018_4,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2018_size <- cbind(
+  rbind(ffd_ci_18[1,] ,temp_ci_18[1,], size_ci_18[1,], ffd_temp_ci_18[1,]),
+  rbind(ffd_ci_18[2,] ,temp_ci_18[2,], size_ci_18[2,], ffd_temp_ci_18[2,])
+)
+colnames(BCIs_selection_2018_size)<-c("lower","upper")
+rownames(BCIs_selection_2018_size) <- c("ffd","temp","size","ffd:temp")
+save(BCIs_selection_2018_size,file="output/BCIs_selection_2018_size.RData")
+```
+
+```{r}
+BCIs_selection_2018_size
+```
+
+## Models without covariates
+
+```{r echo=TRUE}
+selection_2017_5<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2),
+                     subset(data_plants,year==2017))
+selection_2018_5<-lm(nseed_rel~ffd_std*temp+ffd_std*I(temp^2),
+                     subset(data_plants,year==2018))
+summ(selection_2017_5)
+summ(selection_2018_5)
+```
+
+Quadratic terms of ffd not significant. Refit models withouth quadratic terms of ffd.
+
+```{r echo=TRUE}
+selection_2017_6<-lm(nseed_rel~ffd_std*temp,
+                     subset(data_plants,year==2017))
+selection_2018_6<-lm(nseed_rel~ffd_std*temp,
+                     subset(data_plants,year==2018))
+summ(selection_2017_6)
+summ(selection_2018_6)
+```
+
+### BCa intervals 
+
+Used for assessing significance.
+
+#### 2017
+
+```{r}
+# ffd
+slp <- function(selection_2017_6) coef(selection_2017_6)[2]
+b <- car::Boot(selection_2017_6,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_2017_6) coef(selection_2017_6)[3]
+b <- car::Boot(selection_2017_6,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_2017_6) coef(selection_2017_6)[4]
+b <- car::Boot(selection_2017_6,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2017_nocovs <- cbind(
+  rbind(ffd_ci_17[1,] ,temp_ci_17[1,], ffd_temp_ci_17[1,]),
+  rbind(ffd_ci_17[2,] ,temp_ci_17[2,], ffd_temp_ci_17[2,])
+)
+colnames(BCIs_selection_2017_nocovs)<-c("lower","upper")
+rownames(BCIs_selection_2017_nocovs) <- c("ffd","temp","ffd:temp")
+save(BCIs_selection_2017_nocovs,file="output/BCIs_selection_2017_nocovs.RData")
+```
+
+```{r}
+BCIs_selection_2017_nocovs
+```
+
+#### 2018
+
+```{r}
+# ffd
+slp <- function(selection_2018_6) coef(selection_2018_6)[2]
+b <- car::Boot(selection_2018_6,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_2018_6) coef(selection_2018_6)[3]
+b <- car::Boot(selection_2018_6,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_2018_6) coef(selection_2018_6)[4]
+b <- car::Boot(selection_2018_6,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_18 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2018_nocovs <- cbind(
+  rbind(ffd_ci_18[1,] ,temp_ci_18[1,],ffd_temp_ci_18[1,]),
+  rbind(ffd_ci_18[2,] ,temp_ci_18[2,],ffd_temp_ci_18[2,])
+)
+colnames(BCIs_selection_2018_nocovs)<-c("lower","upper")
+rownames(BCIs_selection_2018_nocovs) <- c("ffd","temp","ffd:temp")
+save(BCIs_selection_2018_nocovs,file="output/BCIs_selection_2018_nocovs.RData")
+```
+
+```{r}
+BCIs_selection_2018_nocovs
+```
+
+## Single analysis for both years
+
+### Flower number as covariate
+
+```{r echo=TRUE}
+selection_1<-lm(nseed_rel~ffd_std*temp*year_fct+nfl_std,
+                     data_plants)
+summ(selection_1,vif=T)
+```
+
+```{r}
+plot(ggpredict(selection_1,terms=c("ffd_std","temp","year_fct")),add.data=T)
+```
+
+#### BCa intervals 
+
+Used for assessing significance.
+
+```{r}
+# ffd
+slp <- function(selection_1) coef(selection_1)[2]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_1) coef(selection_1)[3]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# year
+slp <- function(selection_1) coef(selection_1)[4]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# nfl
+slp <- function(selection_1) coef(selection_1)[5]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_1) coef(selection_1)[6]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:year
+slp <- function(selection_1) coef(selection_1)[7]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp:year
+slp <- function(selection_1) coef(selection_1)[8]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp:year
+slp <- function(selection_1) coef(selection_1)[9]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_1 <- cbind(
+  rbind(ffd_ci[1,] ,temp_ci[1,], year_ci[1,], nfl_ci[1,], ffd_temp_ci[1,],
+        ffd_year_ci[1,],temp_year_ci[1,],ffd_temp_year_ci[1,]),
+  rbind(ffd_ci[2,] ,temp_ci[2,], year_ci[2,], nfl_ci[2,], ffd_temp_ci[2,],
+        ffd_year_ci[2,],temp_year_ci[2,],ffd_temp_year_ci[2,])
+)
+colnames(BCIs_selection_1)<-c("lower","upper")
+rownames(BCIs_selection_1) <- c("ffd","temp","year","nfl","ffd:temp",
+                                "ffd:year","temp:year","ffd:temp:year")
+save(BCIs_selection_1,file="output/BCIs_selection_1.RData")
+```
+
+```{r}
+BCIs_selection_1
+```
+
+### Rosette area as covariate
+
+```{r echo=TRUE}
+selection_2<-lm(nseed_rel~ffd_std*temp*year_fct+ros_area_std,
+                     subset(data_plants,!is.na(ros_area_std)))
+summ(selection_2,vif=T)
+```
+
+```{r}
+plot(ggpredict(selection_2,terms=c("ffd_std","temp","year_fct")),add.data=T)
+```
+
+#### BCa intervals 
+
+Used for assessing significance.
+
+```{r}
+# ffd
+slp <- function(selection_2) coef(selection_2)[2]
+b <- car::Boot(selection_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_2) coef(selection_2)[3]
+b <- car::Boot(selection_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# year
+slp <- function(selection_2) coef(selection_2)[4]
+b <- car::Boot(selection_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ros_area
+slp <- function(selection_2) coef(selection_2)[5]
+b <- car::Boot(selection_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ros_area_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_2) coef(selection_2)[6]
+b <- car::Boot(selection_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:year
+slp <- function(selection_2) coef(selection_2)[7]
+b <- car::Boot(selection_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp:year
+slp <- function(selection_2) coef(selection_2)[8]
+b <- car::Boot(selection_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp:year
+slp <- function(selection_2) coef(selection_2)[9]
+b <- car::Boot(selection_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2 <- cbind(
+  rbind(ffd_ci[1,] ,temp_ci[1,], year_ci[1,], ros_area_ci[1,], ffd_temp_ci[1,],
+        ffd_year_ci[1,],temp_year_ci[1,],ffd_temp_year_ci[1,]),
+  rbind(ffd_ci[2,] ,temp_ci[2,], year_ci[2,], ros_area_ci[2,], ffd_temp_ci[2,],
+        ffd_year_ci[2,],temp_year_ci[2,],ffd_temp_year_ci[2,])
+)
+colnames(BCIs_selection_2)<-c("lower","upper")
+rownames(BCIs_selection_2) <- c("ffd","temp","year","ros_area","ffd:temp",
+                                "ffd:year","temp:year","ffd:temp:year")
+save(BCIs_selection_2,file="output/BCIs_selection_2.RData")
+```
+
+```{r}
+BCIs_selection_2
+```
+
+### No covariates
+
+```{r echo=TRUE}
+selection_3<-lm(nseed_rel~ffd_std*temp*year_fct,
+                     data_plants)
+summ(selection_3,vif=T)
+```
+
+```{r}
+plot(ggpredict(selection_3,terms=c("ffd_std","temp","year_fct")),add.data=T)
+```
+
+#### BCa intervals 
+
+Used for assessing significance.
+
+```{r}
+# ffd
+slp <- function(selection_3) coef(selection_3)[2]
+b <- car::Boot(selection_3,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selection_3) coef(selection_3)[3]
+b <- car::Boot(selection_3,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# year
+slp <- function(selection_3) coef(selection_3)[4]
+b <- car::Boot(selection_3,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selection_3) coef(selection_3)[5]
+b <- car::Boot(selection_3,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:year
+slp <- function(selection_3) coef(selection_3)[6]
+b <- car::Boot(selection_3,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp:year
+slp <- function(selection_3) coef(selection_3)[7]
+b <- car::Boot(selection_3,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp:year
+slp <- function(selection_3) coef(selection_3)[8]
+b <- car::Boot(selection_3,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_3 <- cbind(
+  rbind(ffd_ci[1,] ,temp_ci[1,], year_ci[1,], ffd_temp_ci[1,],
+        ffd_year_ci[1,],temp_year_ci[1,],ffd_temp_year_ci[1,]),
+  rbind(ffd_ci[2,] ,temp_ci[2,], year_ci[2,], ffd_temp_ci[2,],
+        ffd_year_ci[2,],temp_year_ci[2,],ffd_temp_year_ci[2,])
+)
+colnames(BCIs_selection_3)<-c("lower","upper")
+rownames(BCIs_selection_3) <- c("ffd","temp","year","ffd:temp",
+                                "ffd:year","temp:year","ffd:temp:year")
+save(BCIs_selection_3,file="output/BCIs_selection_3.RData")
+```
+
+```{r}
+BCIs_selection_3
+```
+
+# Figure 4: Effects of temperature on selection in 2018
+
+```{r}
+pred_fitness<-ggpredict(selection_2018_2,
+                        terms = c("ffd_std [all]","temp [all]"))
+```
+
+```{r fig.height=3, fig.width=6}
+ggplot(pred_fitness,aes(x,predicted,colour=group,fill=group))+
+  geom_line(aes(color=as.numeric(as.character(group))),size=0.5)+my_theme()+
+  scale_color_viridis()+
+  theme(legend.position="right")+labs(colour="Soil temperature (ºC)")+
+  xlab("Standardized FFD")+ylab("Relative fitness")
+ggsave(filename="output/figures/fig4.tiff",width=14,height=8,units="cm",dpi=300)
+```
+
+# Figure S2: Effects of ffd on relative fitness in 2017
+
+```{r}
+pred_fitness_17<-ggpredict(selection_2017_2,
+                        terms = c("ffd_std [all]"))
+```
+
+```{r fig.height=3, fig.width=4}
+ggplot(subset(data_plants,year==2017),aes(x=ffd_std,y=nseed_rel))+
+  xlab("Standardized FFD")+ylab("Relative fitness")+my_theme()+
+  geom_ribbon(data=pred_fitness_17,
+              aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
+              fill="grey",alpha=0.7)+
+  geom_line(data=pred_fitness_17,aes(x=x,y=predicted),size=1,color="black")+
+  geom_point(size=2,alpha=0.2)
+ggsave(filename="output/figures/figS2.tiff",width=10,height=8,
+       units="cm",dpi=300)
+```
+
+# Effect of temperature on the relationship absolute fitness-FFD
+
+```{r echo=TRUE}
+selectionabs_2017_1<-lm(nseed~ffd*temp+ffd*I(temp^2)+log(nfl),
+                     subset(data_plants,year==2017))
+selectionabs_2018_1<-lm(nseed~ffd*temp+ffd*I(temp^2)+log(nfl),
+                     subset(data_plants,year==2018))
+summ(selectionabs_2017_1)
+summ(selectionabs_2018_1)
+```
+
+Quadratic terms of ffd not significant. Refit models withouth quadratic terms of ffd.
+
+```{r echo=TRUE}
+selectionabs_2017_2<-lm(nseed~ffd*temp+log(nfl),subset(data_plants,year==2017))
+selectionabs_2018_2<-lm(nseed~ffd*temp+log(nfl),subset(data_plants,year==2018))
+summ(selectionabs_2017_2)
+summ(selectionabs_2018_2)
+```
+
+## BCa intervals
+
+Used for assessing significance.
+
+### 2017
+
+```{r}
+# ffd
+slp <- function(selectionabs_2017_2) coef(selectionabs_2017_2)[2]
+b <- car::Boot(selectionabs_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selectionabs_2017_2) coef(selectionabs_2017_2)[3]
+b <- car::Boot(selectionabs_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# nfl
+slp <- function(selectionabs_2017_2) coef(selectionabs_2017_2)[4]
+b <- car::Boot(selectionabs_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selectionabs_2017_2) coef(selectionabs_2017_2)[5]
+b <- car::Boot(selectionabs_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2017_abs <- cbind(
+  rbind(ffd_ci_17_abs[1,] ,temp_ci_17_abs[1,], nfl_ci_17_abs[1,],
+        ffd_temp_ci_17_abs[1,]),
+  rbind(ffd_ci_17_abs[2,] ,temp_ci_17_abs[2,], nfl_ci_17_abs[2,],
+        ffd_temp_ci_17_abs[2,])
+)
+colnames(BCIs_selection_2017_abs)<-c("lower","upper")
+rownames(BCIs_selection_2017_abs) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2017_abs,file="output/BCIs_selection_2017_abs.RData")
+```
+
+```{r}
+BCIs_selection_2017_abs
+```
+
+### 2018
+
+```{r}
+# ffd
+slp <- function(selectionabs_2018_2) coef(selectionabs_2018_2)[2]
+b <- car::Boot(selectionabs_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# temp
+slp <- function(selectionabs_2018_2) coef(selectionabs_2018_2)[3]
+b <- car::Boot(selectionabs_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# nfl
+slp <- function(selectionabs_2018_2) coef(selectionabs_2018_2)[4]
+b <- car::Boot(selectionabs_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# ffd:temp
+slp <- function(selectionabs_2018_2) coef(selectionabs_2018_2)[5]
+b <- car::Boot(selectionabs_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r}
+# Save confidence intervals as a table
+BCIs_selection_2018_abs <- cbind(
+  rbind(ffd_ci_18_abs[1,] ,temp_ci_18_abs[1,], nfl_ci_18_abs[1,],
+        ffd_temp_ci_18_abs[1,]),
+  rbind(ffd_ci_18_abs[2,] ,temp_ci_18_abs[2,], nfl_ci_18_abs[2,],
+        ffd_temp_ci_18_abs[2,])
+)
+colnames(BCIs_selection_2018_abs)<-c("lower","upper")
+rownames(BCIs_selection_2018_abs) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2018_abs,file="output/BCIs_selection_2018_abs.RData")
+```
+
+```{r}
+BCIs_selection_2018_abs
+```
+
+# R Session Info
+
+```{r}
+sessionInfo()
+```
+

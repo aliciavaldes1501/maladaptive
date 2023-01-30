@@ -2,9 +2,11 @@ data
 docs
 other
 output
+gis
 .Rproj.user
 .Rproj
 .RData
 .Rhistory
 .Rapp.history
 .pdf
+3_analyses_logger_data_summary.log

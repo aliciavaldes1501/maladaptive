@@ -1,0 +1,368 @@
+---
+title: "Maladaptive plastic responses of flowering time to geothermal heating"
+subtitle: "Code for plot maps"
+author : "Alicia Valdés"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r load packages, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(knitr)
+library(gridExtra)
+library(DHARMa)
+library(RColorBrewer)
+library(broom)
+library(ggpubr)
+library(jtools)
+library(kableExtra)
+library(ggeffects)
+library(MuMIn)
+library(MASS)
+library(segmented)
+library(effects)
+library(purrr)
+library(lubridate)
+library(ggforce)
+library(lmtest)
+library(car)
+library(viridis)
+library(ggrepel)
+library(grid)
+```
+
+```{r Define ggplot themes and palettes, include=FALSE}
+my_theme <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(legend.position="none")+theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+my_theme_legend <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+myPalette <- colorRampPalette(brewer.pal(11, "YlOrRd"))
+```
+
+```{r, include=FALSE}
+set_summ_defaults(digits = 3)
+```
+
+# Read data
+
+The location of these files would need to be changed.
+
+```{r}
+data_plants<-read_csv("data/clean/data_plants.csv")
+plant_coords<-read_csv("data/raw/plant_coords.csv")
+plant_coords$id_original<-plant_coords$Indv
+plant_coords$Indv<-NULL
+plant_coords<-plant_coords%>%
+  right_join(data_plants[c(1:3,7)])
+head(data_plants)
+head(plant_coords)
+```
+
+# Plot maps
+
+## 2017
+
+```{r}
+plant_coords%>%
+  filter(year==2017&Plot=="H01")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H01")+
+  scale_x_continuous(limits=c(0,22),breaks=seq(0,22,1))+
+  scale_y_continuous(limits=c(0,7),breaks=seq(0,7,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H01.jpeg",
+       width=44,height=14,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="H02")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H02")+
+  scale_x_continuous(limits=c(0,19),breaks=seq(0,19,1))+
+  scale_y_continuous(limits=c(0,10),breaks=seq(0,10,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H02.jpeg",
+       width=38,height=20,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="H03")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H03")+
+  scale_x_continuous(limits=c(0,12),breaks=seq(0,11,1))+
+  scale_y_continuous(limits=c(0,8),breaks=seq(0,8,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H03.jpeg",
+       width=24,height=16,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="H04")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H04")+
+  scale_x_continuous(limits=c(-2,30),breaks=seq(-2,30,1))+
+  scale_y_continuous(limits=c(-2,10),breaks=seq(-2,10,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H04.jpeg",
+       width=32,height=12,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="H05")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H05")+
+  scale_x_continuous(limits=c(0,22),breaks=seq(0,22,1))+
+  scale_y_continuous(limits=c(0,6),breaks=seq(0,6,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H05.jpeg",
+       width=44,height=12,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="H08")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H08")+
+  scale_x_continuous(limits=c(0,27),breaks=seq(0,27,1))+
+  scale_y_continuous(limits=c(-1,4),breaks=seq(-1,4,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H08.jpeg",
+       width=54,height=8,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="H09")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H09")+
+  scale_x_continuous(limits=c(0,20),breaks=seq(0,20,1))+
+  scale_y_continuous(limits=c(0,4),breaks=seq(0,4,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H09.jpeg",
+       width=40,height=8,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="H10")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H10")+
+  scale_x_continuous(limits=c(0,31),breaks=seq(0,30,1))+
+  scale_y_continuous(limits=c(-2,7),breaks=seq(-2,7,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H10.jpeg",
+       width=31,height=9,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="H13")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H13")+
+  scale_x_continuous(limits=c(0,13),breaks=seq(0,11,1))+
+  scale_y_continuous(limits=c(-1,3),breaks=seq(-1,3,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_H13.jpeg",
+       width=26,height=8,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="HC1")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC1")+
+  scale_x_continuous(limits=c(0,14),breaks=seq(0,14,1))+
+  scale_y_continuous(limits=c(0,8),breaks=seq(0,8,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_HC1.jpeg",
+       width=28,height=16,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="HC2a")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC2a")+
+  scale_x_continuous(limits=c(0,14),breaks=seq(0,14,1))+
+  scale_y_continuous(limits=c(0,3),breaks=seq(0,3,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_HC2a.jpeg",
+       width=28,height=6,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="HC2b")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC2b")+
+  scale_x_continuous(limits=c(0,13),breaks=seq(0,13,1))+
+  scale_y_continuous(limits=c(0,6),breaks=seq(0,6,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_HC2b.jpeg",
+       width=26,height=12,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="HC4")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC4")+
+  scale_x_continuous(limits=c(0,20),breaks=seq(0,20,1))+
+  scale_y_continuous(limits=c(0,10),breaks=seq(0,10,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_HC4.jpeg",
+       width=40,height=20,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="HC5")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC5")+
+  scale_x_continuous(limits=c(-1,13),breaks=seq(0,13,1))+
+  scale_y_continuous(limits=c(0,5),breaks=seq(0,5,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_HC5.jpeg",
+       width=28,height=10,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2017&Plot=="HC6")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC6")+
+  scale_x_continuous(limits=c(0,30),breaks=seq(0,30,1))+
+  scale_y_continuous(limits=c(-2,8),breaks=seq(0,8,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2017_HC6.jpeg",
+       width=15,height=5,dpi=300)
+```
+
+## 2018
+
+```{r}
+plant_coords%>%
+  filter(year==2018&Plot=="H01")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H01")+
+  scale_x_continuous(limits=c(0,22),breaks=seq(0,22,1))+
+  scale_y_continuous(limits=c(0,7),breaks=seq(0,7,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H01.jpeg",
+       width=44,height=14,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="H02")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H02")+
+  scale_x_continuous(limits=c(0,19),breaks=seq(0,19,1))+
+  scale_y_continuous(limits=c(0,10),breaks=seq(0,10,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H02.jpeg",
+       width=38,height=20,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="H03")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H03")+
+  scale_x_continuous(limits=c(0,12),breaks=seq(0,11,1))+
+  scale_y_continuous(limits=c(0,8),breaks=seq(0,8,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H03.jpeg",
+       width=24,height=16,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="H04")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H04")+
+  scale_x_continuous(limits=c(-2,30),breaks=seq(-2,30,1))+
+  scale_y_continuous(limits=c(-2,10),breaks=seq(-2,10,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H04.jpeg",
+       width=32,height=12,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="H05")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H05")+
+  scale_x_continuous(limits=c(0,22),breaks=seq(0,22,1))+
+  scale_y_continuous(limits=c(0,6),breaks=seq(0,6,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H05.jpeg",
+       width=44,height=12,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="H08")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H08")+
+  scale_x_continuous(limits=c(0,27),breaks=seq(0,27,1))+
+  scale_y_continuous(limits=c(-1,4),breaks=seq(-1,4,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H08.jpeg",
+       width=54,height=8,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="H09")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H09")+
+  scale_x_continuous(limits=c(0,20),breaks=seq(0,20,1))+
+  scale_y_continuous(limits=c(0,4),breaks=seq(0,4,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H09.jpeg",
+       width=40,height=8,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="H10")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H10")+
+  scale_x_continuous(limits=c(0,31),breaks=seq(0,30,1))+
+  scale_y_continuous(limits=c(-2,7),breaks=seq(-2,7,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H10.jpeg",
+       width=31,height=9,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="H13")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot H13")+
+  scale_x_continuous(limits=c(0,13),breaks=seq(0,11,1))+
+  scale_y_continuous(limits=c(-1,3),breaks=seq(-1,3,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_H13.jpeg",
+       width=26,height=8,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="HC1")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC1")+
+  scale_x_continuous(limits=c(0,14),breaks=seq(0,14,1))+
+  scale_y_continuous(limits=c(0,8),breaks=seq(0,8,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_HC1.jpeg",
+       width=28,height=16,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="HC2a")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC2a")+
+  scale_x_continuous(limits=c(0,14),breaks=seq(0,14,1))+
+  scale_y_continuous(limits=c(0,3),breaks=seq(0,3,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_HC2a.jpeg",
+       width=28,height=6,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="HC2b")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC2b")+
+  scale_x_continuous(limits=c(0,13),breaks=seq(0,13,1))+
+  scale_y_continuous(limits=c(0,6),breaks=seq(0,6,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_HC2b.jpeg",
+       width=26,height=12,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="HC4")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC4")+
+  scale_x_continuous(limits=c(0,20),breaks=seq(0,20,1))+
+  scale_y_continuous(limits=c(0,10),breaks=seq(0,10,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_HC4.jpeg",
+       width=40,height=20,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="HC5")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC5")+
+  scale_x_continuous(limits=c(-1,13),breaks=seq(0,13,1))+
+  scale_y_continuous(limits=c(0,5),breaks=seq(0,5,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_HC5.jpeg",
+       width=28,height=10,units="cm",dpi=300)
+plant_coords%>%
+  filter(year==2018&Plot=="HC6")%>%
+  ggplot(aes(x=X,y=Y,color=temp,label=id_original))+geom_point(shape=4)+
+  geom_text_repel()+ggtitle("Plot HC6")+
+  scale_x_continuous(limits=c(0,30),breaks=seq(0,30,1))+
+  scale_y_continuous(limits=c(-2,8),breaks=seq(0,8,1))+
+  geom_hline(yintercept=0)+geom_vline(xintercept=0)
+ggsave(filename="output/figures/plot_maps/2018_HC6.jpeg",
+       width=15,height=5,dpi=300)
+```
+
+
+
+
+# R Session Info
+
+```{r}
+sessionInfo()
+```
+

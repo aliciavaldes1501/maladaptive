@@ -244,6 +244,7 @@ meteo_data_GSstart<-meteo_data%>%mutate(temp_over_5=ifelse(temp>5,1,0))%>%
   slice(1)
 meteo_data_GSstart
 ```
+
 2017: May 2 (agrees with Bryndis calculation)
 2018: June 2 (does not agree with Bryndis calculation)
 

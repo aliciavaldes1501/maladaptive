@@ -1,0 +1,1863 @@
+---
+title: "Maladaptive plastic responses of flowering time to geothermal heating"
+subtitle: "Code for analyses in the paper (revised)"
+author : "Alicia Valdés"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r load packages, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(knitr)
+library(gridExtra)
+library(DHARMa)
+library(RColorBrewer)
+library(broom)
+library(ggpubr)
+library(jtools)
+library(kableExtra)
+library(ggeffects)
+library(MuMIn)
+library(MASS)
+library(segmented)
+library(effects)
+library(purrr)
+library(lubridate)
+library(ggforce)
+library(lmtest)
+library(car)
+library(viridis)
+library(ggrepel)
+library(grid)
+library(foreign)
+library(sp)
+library(ncf)
+library(spdep)
+library(spatialreg)
+```
+
+```{r Define ggplot themes and palettes, include=FALSE}
+my_theme <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(legend.position="none")+theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+my_theme_legend <- function(){
+  theme_base()+theme(plot.background=element_rect(fill="white", colour=NA))+
+  theme(text=element_text(family="serif"))+
+  theme(plot.title = element_text(hjust =-0.06))
+}
+```
+
+```{r, include=FALSE}
+set_summ_defaults(digits = 3)
+```
+
+# Read data
+
+The location of these files would need to be changed.
+
+```{r}
+data_plants<-read_csv("data/clean/data_plants_coords.csv")
+logger_data<-read_csv("data/clean/logger_data.csv")
+logger_data_pairs<-read_csv("data/clean/logger_data_pairs.csv")
+```
+
+```{r}
+#Defining coordinates and coordinate system####
+coordinates(data_plants) <- c("x", "y")
+project1<-"+proj=utm +zone=27 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+proj4string(data_plants) = CRS(project1) #assign CRS with projected coordinates
+
+#A plot of all the plants, colored by temperature
+spplot(data_plants, "temp", do.log=T, colorkey = TRUE)
+```
+
+# Correlation between instant measures of soil temperature and mean soil temperature during the period April 1st – June 5th recorded by loggers 
+
+For each logger\_nr, get mean temperature during April-June and compare with temp\_term (which was measured with a thermometer at 10 cm depth on May 2017):
+
+```{r message=FALSE, warning=FALSE, fig.height=4, fig.width=5}
+with(logger_data%>%
+       mutate(month = month(datetime)) %>%
+       filter(month==4|month==5|month==6)%>%
+       filter(above_below=="B")%>%
+       mutate(date=date(datetime))%>%
+       filter(!is.na(date))%>% # remove records with no info on date
+       filter(datetime<"2018-06-06")%>% # keep only data until June 5
+       group_by(logger_nr) %>%
+       summarize(mean_logger=mean(temp),temp_term=mean(temp_term)),
+     cor.test(mean_logger,temp_term))
+```
+
+# Is soil temperature more weakly correlated with air temperature in warmer soils?
+
+For each date and logger pair, calculate mean, max and min of air and soil temperature (from, respectively, the above and belowground logger). Then, calculate the correlation coefficient for air and soil temperatures over the period May or April-May-June. Finally, regress these correlation coefficients on mean soil temperature (from the belowground logger) for the same period (April-May-June).
+
+## May
+
+```{r}
+data_corr<-(logger_data_pairs%>%
+     mutate(month = month(datetime),date=date(datetime))%>% 
+              # new variables "month" and "date"
+     filter(month==5)%>% # keep data from may
+     group_by(date,pair,above_below)%>% 
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+   #calculate mean, max and min of air and soil temperature 
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"))%>%
+   # Calculate correlations air-soil temperatures
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==5)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp))))
+  # calculate mean soil temperature for may
+```
+
+```{r}
+model_mean<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_mean"))
+model_max<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_max"))
+model_min<-lm(corr~meansoiltemp, 
+               data = subset(data_corr,measure=="corr_airsoil_min"))
+```
+
+Predictions of correlations for minimum and maximum temperatures:
+
+```{r}
+ggpredict(model_mean,terms="meansoiltemp[minmax]") 
+ggpredict(model_max,terms="meansoiltemp[minmax]") 
+ggpredict(model_min,terms="meansoiltemp[minmax]") 
+```
+
+### Appendix S2 (part 1)
+
+Linear models testing the effect of soil temperature on correlations between soil and air temperature (part of table in Appendix S3):
+
+```{r message=FALSE, warning=FALSE}
+(logger_data_pairs%>%
+     mutate(month = month(datetime),date=date(datetime))%>% 
+         # new variables "month" and "date"
+     filter(month==5)%>% # keep data from may
+     group_by(date,pair,above_below)%>% 
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+   #calculate mean, max and min of air and soil temperature 
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"))%>%
+   # Calculate correlations air-soil temperatures
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==5)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp))))%>%
+  # calculate mean soil temperature for may
+  group_by(measure)%>%
+  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
+  unnest(fitcorr)%>%
+  kable(digits=5)
+```
+
+## April-May_june
+
+### Appendix S2 (part 2)
+
+Linear models testing the effect of soil temperature on correlations between soil and air temperature (part of table in Appendix S3):
+
+```{r message=FALSE, warning=FALSE}
+(logger_data_pairs%>%
+     mutate(month = month(datetime),date=date(datetime))%>%
+          # new variables "month" and "date"
+     filter(month==4|month==5|month==6)%>% # keep data from april-june
+     group_by(date,pair,above_below)%>% 
+     summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+   #calculate mean, max and min of air and soil temperature 
+     pivot_wider(names_from="above_below",values_from=c("mean","max","min"))%>%
+     group_by(pair)%>%
+     summarise(corr_airsoil_mean=cor(mean_A,mean_B,use="pairwise.complete.obs"),
+               corr_airsoil_max=cor(max_A,max_B,use="pairwise.complete.obs"),
+               corr_airsoil_min=cor(min_A,min_B,use="pairwise.complete.obs"))%>%
+   # Calculate correlations air-soil temperatures
+     pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                  names_to="measure",values_to="corr")%>%
+  left_join(logger_data_pairs%>%
+                 mutate(month = month(datetime))%>%
+                 filter(month==4|month==5|month==6)%>%
+                 filter(above_below=="B")%>%
+                 group_by(pair)%>%
+              summarise(meansoiltemp=mean(temp))))%>%
+  # calculate mean soil temperature for april-june
+  group_by(measure)%>%
+  do(fitcorr = tidy(lm(corr~meansoiltemp, data = .))) %>% 
+  unnest(fitcorr)%>%
+  kable(digits=5)
+```
+
+### Appendix S1: Correlations soil-air temperature vs soil temperature
+
+```{r fig.height=3, fig.width=8, message=FALSE, warning=FALSE}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", 
+               "#D55E00", "#CC79A7")
+AppS1A<-(logger_data_pairs%>%
+          mutate(month = month(datetime),date=date(datetime))%>% 
+         # new variables "month" and "date"
+          filter(month==5)%>% # keep data from may
+          group_by(date,pair,above_below)%>% 
+          summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+          #calculate mean, max and min of air and soil temperature 
+          pivot_wider(names_from="above_below",
+                      values_from=c("mean","max","min"))%>%
+          group_by(pair)%>%
+          summarise(corr_airsoil_mean=cor(mean_A,mean_B,
+                                          use="pairwise.complete.obs"),
+                    corr_airsoil_max=cor(max_A,max_B,
+                                         use="pairwise.complete.obs"),
+                    corr_airsoil_min=cor(min_A,min_B,
+                                         use="pairwise.complete.obs"))%>%
+          # Calculate correlations air-soil temperatures
+          pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                       names_to="measure",values_to="corr")%>%
+          left_join(logger_data_pairs%>%
+                      mutate(month = month(datetime))%>%
+                      filter(month==5)%>%
+                      filter(above_below=="B")%>%
+                      group_by(pair)%>%
+                      summarise(meansoiltemp=mean(temp))))%>%
+  # calculate mean soil temperature for may
+  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure,fill=measure,shape=measure))+
+  geom_smooth(method="lm",size=1)+geom_point(size=2,alpha=0.5)+
+  xlab("Mean soil temperature (ºC)")+
+  ylab(NULL)+
+  my_theme()+scale_fill_manual(values=cbPalette)+
+  scale_colour_manual(values=cbPalette)+
+  scale_shape_manual(values=c(15,16,17)) +     
+  geom_text_repel(data=. %>% filter(corr<0),aes(label=pair))+
+  ggtitle("A)")
+AppS1B<-(logger_data_pairs%>%
+          mutate(month = month(datetime),date=date(datetime))%>%
+          # new variables "month" and "date"
+          filter(month==4|month==5|month==6)%>% # keep data from april-june
+          group_by(date,pair,above_below)%>% 
+          summarise(mean=mean(temp,na.rm=T),max=max(temp),min=min(temp))%>% 
+          #calculate mean, max and min of air and soil temperature 
+          pivot_wider(names_from="above_below",
+                      values_from=c("mean","max","min"))%>%
+          group_by(pair)%>%
+          summarise(corr_airsoil_mean=cor(mean_A,mean_B,
+                                          use="pairwise.complete.obs"),
+                    corr_airsoil_max=cor(max_A,max_B,
+                                         use="pairwise.complete.obs"),
+                    corr_airsoil_min=cor(min_A,min_B,
+                                         use="pairwise.complete.obs"))%>%
+          # Calculate correlations air-soil temperatures
+          pivot_longer(cols=corr_airsoil_mean:corr_airsoil_min,
+                       names_to="measure",values_to="corr")%>%
+          left_join(logger_data_pairs%>%
+                      mutate(month = month(datetime))%>%
+                      filter(month==4|month==5|month==6)%>%
+                      filter(above_below=="B")%>%
+                      group_by(pair)%>%
+                      summarise(meansoiltemp=mean(temp))))%>%
+  # calculate mean soil temperature for april-june
+  ggplot(.,aes(x=meansoiltemp,y=corr,color=measure,fill=measure,shape=measure))+
+  geom_smooth(method="lm",size=1)+geom_point(size=2,alpha=0.5)+
+  xlab("Mean soil temperature (ºC)")+
+  ylab(NULL)+
+  my_theme()+scale_fill_manual(values=cbPalette)+
+  scale_colour_manual(values=cbPalette)+
+  scale_shape_manual(values=c(15,16,17)) + 
+  geom_text_repel(data=. %>% filter(corr<0),aes(label=pair))+
+  ggtitle("B)")
+AppS1<-grid.arrange(AppS1A,AppS1B,ncol=2,
+                    left=textGrob("Correlation coefficient\nsoil-air temperature",just="center",
+                      hjust=0.42,
+                      gp=gpar(fontsize=16,fontfamily="serif"),
+                      rot = 90))
+ggsave(filename="output/figures/AppS1.tiff",plot=AppS1,
+       width=24,height=10,units="cm",dpi=300)
+```
+
+# Hypothesis 1: Effect of temperature on FFD
+
+Models including quadratic effects of ffd.
+
+```{r echo=TRUE}
+data_plants$year_fct<-as.factor(data_plants$year)
+FFD_1<-lm(ffd~(temp+I(temp^2))*year_fct,data_plants)
+summ(FFD_1,vif=T)
+```
+
+Quadratic terms of ffd not significant. Refit models without quadratic terms of ffd.
+
+```{r echo=TRUE}
+FFD_1<-lm(ffd~temp*year_fct,data_plants)
+summ(FFD_1,vif=T)
+```
+
+Predictions of ffd for minimum and maximum temperatures:
+
+```{r}
+range(subset(data_plants,year==2017)$temp)
+range(subset(data_plants,year==2018)$temp)
+ggpredict(FFD_1,terms=c("temp[4.1,45.5]","year_fct[2017]"))
+# 179.26-165.52=14 days earlier on warmer soils
+ggpredict(FFD_1,terms=c("temp[3.5,34.0]","year_fct[2018]"))
+# 191.36-158.74=45 days earlier on warmer soils
+```
+
+# Hypothesis 2: Effect of temperature on fitness
+
+```{r echo=TRUE}
+fitness_1<-glm.nb(n_seed_round~(temp+I(temp^2))*year_fct+log(nfl),
+                      data_plants) # Quadratic term significant, keep
+summ(fitness_1,vif=T)
+```
+
+Predictions of fitness for minimum and maximum temperatures:
+
+```{r}
+range(subset(data_plants,year==2017)$temp)
+range(subset(data_plants,year==2018)$temp)
+ggpredict(fitness_1,terms=c("temp[4.1,45.5]","year_fct[2017]"))
+ggpredict(fitness_1,terms=c("temp[3.5,34.0]","year_fct[2018]"))
+```
+
+# Figure 2: Effects of temperature on ffd and fitness
+
+Model prediction ffd : based on model FFD_1 (without quadratic term of ffd)
+
+```{r}
+predict_FFD<-ggpredict(FFD_1,terms=c("temp [all]","year_fct"))
+```
+
+Model prediction fitness : based on model fitness_1
+
+```{r}
+predict_fitness<-ggpredict(fitness_1,terms=c("temp [all]","year_fct"))
+```
+
+```{r fig.height=3, fig.width=8, message=FALSE, warning=FALSE}
+fig2<-
+  grid.arrange(
+    # ffd
+    ggplot(data.frame(data_plants),aes(x=temp,y=ffd))+
+  xlab("Soil temperature (ºC)")+ylab("FFD\n(Day of year)")+my_theme()+
+  geom_point(aes(color=year_fct),size=2,alpha=0.2)+
+  geom_ribbon(data=subset(predict_FFD,group==2017&
+                          x>=min(subset(data_plants,year==2017)$temp)&
+                          x<=max(subset(data_plants,year==2017)$temp)),
+              aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=group),
+              alpha=0.5)+
+  geom_line(data=subset(predict_FFD,group==2017&
+                          x>=min(subset(data_plants,year==2017)$temp)&
+                          x<=max(subset(data_plants,year==2017)$temp)),
+            aes(x=x,y=predicted,color=group),size=1)+
+  geom_ribbon(data=subset(predict_FFD,group==2018&
+                            x>=min(subset(data_plants,year==2018)$temp)&
+                            x<=max(subset(data_plants,year==2018)$temp)),
+              aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=group),
+              alpha=0.5)+
+  geom_line(data=subset(predict_FFD,group==2018&
+                          x>=min(subset(data_plants,year==2018)$temp)&
+                          x<=max(subset(data_plants,year==2018)$temp)),
+            aes(x=x,y=predicted,color=group),size=1)+
+  ggtitle("A)")+theme(plot.title=element_text(hjust=-0.35,vjust=-3))+
+  theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm"))+
+  scale_fill_manual(values=cbPalette)+scale_color_manual(values=cbPalette),
+    # fitness
+    ggplot(data.frame(data_plants),aes(x=temp,y=nseed))+
+      xlab("Soil temperature (ºC)")+ylab("Fitness\n(number of seeds)")+
+      my_theme()+
+      geom_point(aes(color=year_fct),size=2,alpha=0.2)+
+      geom_ribbon(data=subset(predict_fitness,group==2017&
+                          x>=min(subset(data_plants,year==2017)$temp)&
+                          x<=max(subset(data_plants,year==2017)$temp)),
+                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=group),
+                  alpha=0.5)+
+      geom_line(data=subset(predict_fitness,group==2017&
+                          x>=min(subset(data_plants,year==2017)$temp)&
+                          x<=max(subset(data_plants,year==2017)$temp)),
+                aes(x=x,y=predicted,color=group),size=1)+
+    geom_ribbon(data=subset(predict_fitness,group==2018&
+                          x>=min(subset(data_plants,year==2018)$temp)&
+                          x<=max(subset(data_plants,year==2018)$temp)),
+                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=group),
+                  alpha=0.5)+
+      geom_line(data=subset(predict_fitness,group==2018&
+                          x>=min(subset(data_plants,year==2018)$temp)&
+                          x<=max(subset(data_plants,year==2018)$temp)),
+                aes(x=x,y=predicted,color=group),size=1)+
+      ggtitle("B)")+theme(plot.title=element_text(hjust=-0.35,vjust=-3))+
+      theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm"))+
+      scale_fill_manual(values=cbPalette)+scale_color_manual(values=cbPalette)+
+      scale_y_continuous(trans='log10'),
+    ncol=2)
+ggsave(filename="output/figures/fig2.tiff",plot=fig2,
+       width=22,height=8,units="cm",dpi=300)
+```
+
+# Hypothesis 3: Effect of temperature on selection on FFD
+
+Models including quadratic effects of temp.
+
+```{r echo=TRUE}
+selection_1<-lm(nseed_rel~ffd_std*(temp+I(temp^2))*year_fct+nfl_std,
+                     data_plants)
+summ(selection_1,vif=T)
+```
+
+Quadratic terms of temp not significant. Refit models without quadratic terms of temp
+
+```{r echo=TRUE}
+selection_1<-lm(nseed_rel~ffd_std*temp*year_fct+nfl_std,
+                     data_plants)
+summ(selection_1,vif=T)
+```
+
+## BCa intervals
+
+Used for assessing significance.
+
+```{r echo=TRUE}
+# ffd
+slp <- function(selection_1) coef(selection_1)[2]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# temp
+slp <- function(selection_1) coef(selection_1)[3]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# year
+slp <- function(selection_1) coef(selection_1)[4]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# nfl
+slp <- function(selection_1) coef(selection_1)[5]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:temp
+slp <- function(selection_1) coef(selection_1)[6]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:year
+slp <- function(selection_1) coef(selection_1)[7]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# temp:year
+slp <- function(selection_1) coef(selection_1)[8]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:temp:year
+slp <- function(selection_1) coef(selection_1)[9]
+b <- car::Boot(selection_1,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_year_ci <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# Save confidence intervals as a table
+BCIs_selection_1 <- cbind(
+  rbind(ffd_ci[1,] ,temp_ci[1,], year_ci[1,], nfl_ci[1,], ffd_temp_ci[1,],
+        ffd_year_ci[1,],temp_year_ci[1,],ffd_temp_year_ci[1,]),
+  rbind(ffd_ci[2,] ,temp_ci[2,], year_ci[2,], nfl_ci[2,], ffd_temp_ci[2,],
+        ffd_year_ci[2,],temp_year_ci[2,],ffd_temp_year_ci[2,])
+)
+colnames(BCIs_selection_1)<-c("lower","upper")
+rownames(BCIs_selection_1) <- c("ffd","temp","year","nfl","ffd:temp",
+                                "ffd:year","temp:year","ffd:temp:year")
+save(BCIs_selection_1,file="output/BCIs_selection_1.RData")
+```
+
+```{r}
+BCIs_selection_1
+```
+
+# Figure 3: Effects of temperature on selection
+
+```{r}
+quantile(subset(data_plants,year==2017)$temp,probs=c(0.05,0.95))
+quantile(subset(data_plants,year==2018)$temp,probs=c(0.05,0.95))
+pred_fitness_17<-ggpredict(selection_1,
+                           terms = c("ffd_std[all]","temp[6.32:26.90]",
+                                     "year_fct[2017]"))
+pred_fitness_18<-ggpredict(selection_1,
+                           terms = c("ffd_std[all]","temp[5.060:25.825]",
+                                     "year_fct[2018]"))
+```
+
+```{r}
+fig3<-cowplot::plot_grid(ggplot(data.frame(data_plants),
+                                aes(x=ffd_std,y=nseed_rel))+
+                           facet_grid(~year,scales="fixed")+
+                           geom_point(size=1.5,alpha=0.3)+
+                           my_theme()+ggtitle("A)")+
+                           xlab("Standardized FFD")+ylab("Relative fitness")+
+                           theme(plot.title=element_text(hjust=-0.1,vjust=-5))+
+                           theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm")), 
+                         ggplot(rbind(data.frame(pred_fitness_17),
+                                      data.frame(pred_fitness_18)),
+                                aes(x,predicted,colour=group,fill=group))+
+                           facet_grid(~facet,scales="free")+
+                           geom_line(aes(color=as.numeric(as.character(group))),
+                                     size=0.5)+
+                           my_theme_legend()+
+                           theme(legend.position="right")+ggtitle("B)")+
+                           scale_color_viridis()+
+                           labs(colour="Soil\ntemperature\n(ºC)")+
+                           xlab("Standardized FFD")+ylab("Relative fitness")+
+                           theme(plot.title=element_text(hjust=-0.1,vjust=-5))+
+                           theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm"))+
+                           scale_y_continuous(limits=c(-0.4,2.8),
+                                              breaks=c(0,0.5,1,1.5,2,2.5)),
+                         ncol=1,align="v",axis="lr")
+fig3
+ggsave(filename="output/figures/fig3.tiff",plot=fig3,
+       width=18,height=16,units="cm",dpi=300)
+```
+
+
+# Appendix S4
+
+```{r}
+quantile(subset(data_plants,year==2017)$temp)
+
+mean(subset(data_plants,year==2017&temp<=7.4)$temp) 
+# Mean cat 1 = 6.714286
+mean(subset(data_plants,year==2017&temp>7.4&temp<=10.7)$temp) 
+# Mean cat 2 = 8.748333
+mean(subset(data_plants,year==2017&temp>10.7&temp<=20.6)$temp) 
+# Mean cat 3 = 16.2129
+mean(subset(data_plants,year==2017&temp>20.6)$temp) 
+# Mean cat 4 = 25.10667
+
+quantile(subset(data_plants,year==2018)$temp)
+
+mean(subset(data_plants,year==2018&temp<=6.875)$temp) 
+# Mean cat 1 = 5.784615
+mean(subset(data_plants,year==2018&temp>6.875&temp<=9.300)$temp) 
+# Mean cat 2 = 7.95
+mean(subset(data_plants,year==2018&temp>9.300&temp<=17.075)$temp) 
+# Mean cat 3 = 12.45
+mean(subset(data_plants,year==2018&temp>17.075)$temp) 
+# Mean cat 4 = 23.28846
+
+pred_fitness_17_cats<-rbind(
+  (data.frame(ggpredict(selection_1,
+                           terms = c("ffd_std[all]","temp[6.714286]",
+                                     "year_fct[2017]")))%>%
+     mutate(temp_cat=1)%>%
+     dplyr::rename(FFD_std=x, fitness=predicted,temp=group)),
+  (data.frame(ggpredict(selection_1,
+                        terms = c("ffd_std[all]","temp[8.748333]",
+                                     "year_fct[2017]")))%>%
+     mutate(temp_cat=2)%>%
+     dplyr::rename(FFD_std=x, fitness=predicted,temp=group)),
+  (data.frame(ggpredict(selection_1,
+                        terms = c("ffd_std[all]","temp[16.2129]",
+                                     "year_fct[2017]")))%>%
+     mutate(temp_cat=3)%>%
+     dplyr::rename(FFD_std=x, fitness=predicted,temp=group)),
+  (data.frame(ggpredict(selection_1,
+                        terms = c("ffd_std[all]","temp[25.10667]",
+                                     "year_fct[2017]")))%>%
+     mutate(temp_cat=4)%>%
+     dplyr::rename(FFD_std=x, fitness=predicted,temp=group)))
+
+pred_fitness_18_cats<-rbind(
+  (data.frame(ggpredict(selection_1,
+                           terms = c("ffd_std[all]","temp[5.784615]",
+                                     "year_fct[2018]")))%>%
+     mutate(temp_cat=1)%>%
+     dplyr::rename(FFD_std=x, fitness=predicted,temp=group)),
+  (data.frame(ggpredict(selection_1,
+                        terms = c("ffd_std[all]","temp[7.95]",
+                                     "year_fct[2018]")))%>%
+     mutate(temp_cat=2)%>%
+     dplyr::rename(FFD_std=x, fitness=predicted,temp=group)),
+  (data.frame(ggpredict(selection_1,
+                        terms = c("ffd_std[all]","temp[12.45]",
+                                     "year_fct[2018]")))%>%
+     mutate(temp_cat=3)%>%
+     dplyr::rename(FFD_std=x, fitness=predicted,temp=group)),
+  (data.frame(ggpredict(selection_1,
+                        terms = c("ffd_std[all]","temp[23.28846]",
+                                     "year_fct[2018]")))%>%
+     mutate(temp_cat=4)%>%
+     dplyr::rename(FFD_std=x, fitness=predicted,temp=group)))
+
+
+label_names1 <- list(
+  '1'="First quarter\nMean temperature = 6.7ºC",
+  '2'="Second quarter\nMean temperature = 8.7ºC",
+  '3'="Third quarter\nMean temperature = 16.2ºC",
+  '4'="Fourth quarter\nMean temperature = 25.1ºC"
+)
+
+labeller_function1 <- function(variable,value){
+  return(label_names1[value])
+}
+```
+
+```{r}
+leg <- as_ggplot(get_legend(ggplot(subset(data.frame(data_plants),
+                                          year==2017)%>%
+         # Define 4 temp categories based on quartiles
+         mutate(temp_cat=as.factor(
+           ifelse(temp<=7.4,1,
+                  ifelse(temp>7.4&temp<=10.7,2,
+                         ifelse(temp>10.7&temp<=20.6,3,4))))),
+       aes(x=ffd_std,y=nseed_rel))+
+  facet_grid(~temp_cat,scales="free",
+             labeller=labeller(temp_cat=labeller_function1))+
+  geom_jitter(size=1.5,alpha=0.3,width=0.05)+
+  geom_line(data=pred_fitness_17_cats,
+            aes(x=FFD_std,y=fitness,color=temp_cat),size=1)+
+  geom_ribbon(data=pred_fitness_17_cats,aes(x=FFD_std,y=fitness,
+                                     ymin=conf.low,ymax=conf.high,
+                                     fill=temp_cat),alpha=0.3)+
+  my_theme()+scale_color_viridis(labels=NULL)+scale_fill_viridis(labels=NULL)+
+  theme(legend.position="top")+labs(colour="Temperature (ºC)      ")+
+  xlab("Standardized FFD")+
+  ylab("Relative fitness")+
+  #scale_x_continuous(breaks=c(-4,-2,0,2,4,6,8))+
+  theme(strip.text.x=element_text(margin=margin(2,0,2,0)))+
+  guides(fill=FALSE)+ggtitle("A) 2017")))
+
+AppS4<-grid.arrange(leg,
+             ggplot(subset(data.frame(data_plants),year==2017)%>%
+         # Define 4 temp categories based on quartiles
+         mutate(temp_cat=as.factor(
+           ifelse(temp<=7.4,1,
+                  ifelse(temp>7.4&temp<=10.7,2,
+                         ifelse(temp>10.7&temp<=20.6,3,4))))),
+       aes(x=ffd_std,y=nseed_rel))+
+  facet_grid(~temp_cat,scales="free",
+             labeller=labeller(temp_cat=labeller_function1))+
+  geom_jitter(size=1.5,alpha=0.3,width=0.05)+
+  geom_line(data=pred_fitness_17_cats,
+            aes(x=FFD_std,y=fitness,color=temp_cat),size=1)+
+  geom_ribbon(data=pred_fitness_17_cats,aes(x=FFD_std,y=fitness,
+                                     ymin=conf.low,ymax=conf.high,
+                                     fill=temp_cat),alpha=0.3)+
+  my_theme()+scale_color_viridis(labels=NULL)+scale_fill_viridis(labels=NULL)+
+  labs(colour="Temperature (ºC)      ")+
+  xlab("Standardized FFD")+
+  ylab("Relative fitness")+
+  #scale_x_continuous(breaks=c(-4,-2,0,2,4,6,8))+
+  theme(strip.text.x=element_text(margin=margin(2,0,2,0)))+
+  guides(fill=FALSE)+ggtitle("A) 2017"),
+  ggplot(subset(data.frame(data_plants),year==2018)%>%
+         # Define 4 temp categories based on quartiles
+         mutate(temp_cat=as.factor(
+           ifelse(temp<=6.875,1,
+                  ifelse(temp>6.875&temp<=9.300,2,
+                         ifelse(temp>9.300&temp<=17.075,3,4))))),
+       aes(x=ffd_std,y=nseed_rel))+
+  facet_grid(~temp_cat,scales="free",
+             labeller=labeller(temp_cat=labeller_function1))+
+  geom_jitter(size=1.5,alpha=0.3,width=0.05)+
+  geom_line(data=pred_fitness_18_cats,
+            aes(x=FFD_std,y=fitness,color=temp_cat),size=1)+
+  geom_ribbon(data=pred_fitness_18_cats,aes(x=FFD_std,y=fitness,
+                                     ymin=conf.low,ymax=conf.high,
+                                     fill=temp_cat),alpha=0.3)+
+  my_theme()+scale_color_viridis(labels=NULL)+scale_fill_viridis(labels=NULL)+
+  labs(colour="Temperature (ºC)      ")+
+  xlab("Standardized FFD")+
+  ylab("Relative fitness")+
+  #scale_x_continuous(breaks=c(-4,-2,0,2,4,6,8))+
+  theme(strip.text.x=element_text(margin=margin(2,0,2,0)))+
+  guides(fill=FALSE)+ggtitle("B) 2018"),
+                          ncol=1,heights=c(0.1,1,1))
+ggsave(filename="output/figures/AppS4.tiff",plot=AppS4,
+       width=26,height=20,units="cm",dpi=300)
+```
+
+Predictions of fitness:
+
+```{r}
+plot(ggpredict(selection_1,
+               terms=c("ffd_std[all]","temp[6.5:6.7 by=0.1]","year_fct[2018]")),
+     ci=F)
+```
+
+In 2018, the model predicted that selection favoured earlier flowering at soil temperatures up to 6.5 ºC, while later flowering was favoured at higher soil temperatures.
+
+# Effect of temperature on the relationship absolute fitness-FFD
+
+Keep separate models for both years here!
+
+```{r echo=TRUE}
+selectionabs_2017_1<-lm(nseed~ffd*temp+ffd*I(temp^2)+log(nfl),
+                     subset(data_plants,year==2017))
+selectionabs_2018_1<-lm(nseed~ffd*temp+ffd*I(temp^2)+log(nfl),
+                     subset(data_plants,year==2018))
+summ(selectionabs_2017_1)
+summ(selectionabs_2018_1)
+```
+
+Quadratic terms of ffd not significant. Refit models withouth quadratic terms of ffd.
+
+```{r echo=TRUE}
+selectionabs_2017_2<-lm(nseed~ffd*temp+log(nfl),subset(data_plants,year==2017))
+selectionabs_2018_2<-lm(nseed~ffd*temp+log(nfl),subset(data_plants,year==2018))
+summ(selectionabs_2017_2)
+summ(selectionabs_2018_2)
+```
+
+## BCa intervals
+
+Used for assessing significance.
+
+### 2017
+
+```{r echo=TRUE}
+# ffd
+slp <- function(selectionabs_2017_2) coef(selectionabs_2017_2)[2]
+b <- car::Boot(selectionabs_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# temp
+slp <- function(selectionabs_2017_2) coef(selectionabs_2017_2)[3]
+b <- car::Boot(selectionabs_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# nfl
+slp <- function(selectionabs_2017_2) coef(selectionabs_2017_2)[4]
+b <- car::Boot(selectionabs_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:temp
+slp <- function(selectionabs_2017_2) coef(selectionabs_2017_2)[5]
+b <- car::Boot(selectionabs_2017_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# Save confidence intervals as a table
+BCIs_selection_2017_abs <- cbind(
+  rbind(ffd_ci_17_abs[1,] ,temp_ci_17_abs[1,], nfl_ci_17_abs[1,],
+        ffd_temp_ci_17_abs[1,]),
+  rbind(ffd_ci_17_abs[2,] ,temp_ci_17_abs[2,], nfl_ci_17_abs[2,],
+        ffd_temp_ci_17_abs[2,])
+)
+colnames(BCIs_selection_2017_abs)<-c("lower","upper")
+rownames(BCIs_selection_2017_abs) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2017_abs,file="output/BCIs_selection_2017_abs.RData")
+```
+
+```{r}
+BCIs_selection_2017_abs
+```
+
+### 2018
+
+```{r echo=TRUE}
+# ffd
+slp <- function(selectionabs_2018_2) coef(selectionabs_2018_2)[2]
+b <- car::Boot(selectionabs_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# temp
+slp <- function(selectionabs_2018_2) coef(selectionabs_2018_2)[3]
+b <- car::Boot(selectionabs_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# nfl
+slp <- function(selectionabs_2018_2) coef(selectionabs_2018_2)[4]
+b <- car::Boot(selectionabs_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:temp
+slp <- function(selectionabs_2018_2) coef(selectionabs_2018_2)[5]
+b <- car::Boot(selectionabs_2018_2,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_18_abs <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# Save confidence intervals as a table
+BCIs_selection_2018_abs <- cbind(
+  rbind(ffd_ci_18_abs[1,] ,temp_ci_18_abs[1,], nfl_ci_18_abs[1,],
+        ffd_temp_ci_18_abs[1,]),
+  rbind(ffd_ci_18_abs[2,] ,temp_ci_18_abs[2,], nfl_ci_18_abs[2,],
+        ffd_temp_ci_18_abs[2,])
+)
+colnames(BCIs_selection_2018_abs)<-c("lower","upper")
+rownames(BCIs_selection_2018_abs) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2018_abs,file="output/BCIs_selection_2018_abs.RData")
+```
+
+```{r}
+BCIs_selection_2018_abs
+```
+
+
+# Tests of residual spatial autocorrelation
+
+Run separate models for each year and test for residual spatial autocorrelation in those.
+
+## Hypothesis 1
+
+```{r}
+FFD_2017<-lm(ffd~temp,subset(data_plants,year==2017))
+FFD_2018<-lm(ffd~temp,subset(data_plants,year==2018))
+summ(FFD_2017)
+summ(FFD_2018)
+```
+
+### Spatial correlograms
+
+```{r}
+res_FFD_2017<-residuals(FFD_2017) 
+res_FFD_2018<-residuals(FFD_2018)
+```
+
+```{r}
+correlog_FFD_2017 <- correlog(x=subset(data_plants,year==2017)$x,
+                            y=subset(data_plants,year==2017)$y,
+                            res_FFD_2017,increment=1, resamp=100,quiet=F) 
+correlog_FFD_2018 <- correlog(x=subset(data_plants,year==2018)$x,
+                            y=subset(data_plants,year==2018)$y,
+                            res_FFD_2018,increment=1, resamp=100,quiet=F)
+```
+
+```{r}
+plot(correlog_FFD_2017)
+plot(correlog_FFD_2018)
+```
+
+### Moran's I
+
+Calculation of global Moran's I with a permutation test (1000 random permutations), based on a connectivity matrix of pairwise Euclidean distances among the plants up to a distance of 30 m. 
+
+```{r}
+# Create neighbours matrix (30 m)
+data_plants.listw_2017 <- nb2listw(dnearneigh(subset(data_plants,year==2017),
+                                              0,30)) 
+data_plants.listw_2018 <- nb2listw(dnearneigh(subset(data_plants,year==2018),
+                                              0,30)) 
+moran_FFD_2017<- moran.mc(res_FFD_2017, listw=data_plants.listw_2017,nsim=999)
+moran_FFD_2018<- moran.mc(res_FFD_2018, listw=data_plants.listw_2018,nsim=999) 
+```
+
+```{r}
+moran_FFD_2017 # Significant autocorrelation in the residuals
+moran_FFD_2018 # Significant autocorrelation in the residuals
+```
+
+### Moran's eigenvector mapping
+
+```{r}
+ME.FFD_2017 <-ME(FFD_2017,listw=data_plants.listw_2017,
+               data=subset(data_plants,year==2017),
+               alpha=0.1,verbose=T) 
+ME.FFD_2018 <-ME(FFD_2018,listw=data_plants.listw_2018,
+               data=subset(data_plants,year==2018),
+               alpha=0.1,verbose=T) 
+```
+
+```{r}
+vector1_2017_FFD<-ME.FFD_2017$vectors[,1]
+vector1_2018_FFD<-ME.FFD_2018$vectors[,1]
+
+FFD_2017_ME<-lm(ffd~temp+vector1_2017_FFD,
+                subset(data_plants,year==2017))
+FFD_2018_ME<-lm(ffd~temp+vector1_2018_FFD,subset(data_plants,year==2018))
+summ(FFD_2017_ME)
+summ(FFD_2018_ME)
+```
+
+#### Tests of residual spatial autocorrelation
+
+##### Spatial correlograms
+
+```{r}
+res_FFD_2017_ME<-residuals(FFD_2017_ME) 
+res_FFD_2018_ME<-residuals(FFD_2018_ME)
+```
+
+```{r}
+correlog_FFD_2017_ME <- correlog(x=subset(data_plants,year==2017)$x,
+                            y=subset(data_plants,year==2017)$y,
+                            res_FFD_2017_ME,increment=1, resamp=100,quiet=F) 
+correlog_FFD_2018_ME <- correlog(x=subset(data_plants,year==2018)$x,
+                            y=subset(data_plants,year==2018)$y,
+                            res_FFD_2018_ME,increment=1, resamp=100,quiet=F)
+```
+
+```{r}
+plot(correlog_FFD_2017_ME)
+plot(correlog_FFD_2018_ME)
+```
+
+##### Moran's I
+
+Calculation of global Moran's I with a permutation test (1000 random permutations), based on a connectivity matrix of pairwise Euclidean distances among the plants up to a distance of 30 m. 
+
+```{r}
+res_FFD_2017_ME<-residuals(FFD_2017_ME)
+res_FFD_2018_ME<-residuals(FFD_2018_ME)
+moran_FFD_2017_ME<- moran.mc(res_FFD_2017_ME, listw=data_plants.listw_2017,
+                             nsim=999)
+moran_FFD_2018_ME<- moran.mc(res_FFD_2018_ME, listw=data_plants.listw_2018,
+                             nsim=999) 
+```
+
+```{r}
+moran_FFD_2017_ME # No significant autocorrelation in the residuals
+moran_FFD_2018_ME # No significant autocorrelation in the residuals
+```
+
+### AppS6 - Figure S1
+
+```{r}
+# FFD_2017
+corr_FFD_2017<-data.frame(cbind(distance=
+                                as.vector(correlog_FFD_2017$mean.of.class[1:31]), 
+                      correlation=as.vector(correlog_FFD_2017$correlation[1:31]),
+                      p=as.vector(correlog_FFD_2017$p[1:31])))
+corr_FFD_2017_ME<-data.frame(cbind(distance=
+                                   as.vector(
+                                     correlog_FFD_2017_ME$mean.of.class[1:31]),
+                                 correlation=
+                                   as.vector(correlog_FFD_2017_ME$correlation[1:31]),
+                                  p=as.vector(correlog_FFD_2017_ME$p[1:31])))
+corr_FFD_2017$type<-"FFD_2017"
+corr_FFD_2017_ME$type<-"FFD_2017_ME"
+corr_FFD_2017<-rbind(corr_FFD_2017,corr_FFD_2017_ME)
+corr_FFD_2017$sig<-as.factor(ifelse(corr_FFD_2017$p<0.05,1,0))
+
+# FFD_2018
+corr_FFD_2018<-data.frame(cbind(distance=
+                                as.vector(correlog_FFD_2018$mean.of.class[1:31]), 
+                      correlation=as.vector(correlog_FFD_2018$correlation[1:31]),
+                      p=as.vector(correlog_FFD_2018$p[1:31])))
+corr_FFD_2018_ME<-data.frame(cbind(distance=
+                                   as.vector(
+                                     correlog_FFD_2018_ME$mean.of.class[1:31]),
+                                 correlation=
+                                   as.vector(correlog_FFD_2018_ME$correlation[1:31]),
+                                  p=as.vector(correlog_FFD_2018_ME$p[1:31])))
+corr_FFD_2018$type<-"FFD_2018"
+corr_FFD_2018_ME$type<-"FFD_2018_ME"
+corr_FFD_2018<-rbind(corr_FFD_2018,corr_FFD_2018_ME)
+corr_FFD_2018$sig<-as.factor(ifelse(corr_FFD_2018$p<0.05,1,0))
+```
+
+```{r}
+AppS6_FigS1<-grid.arrange(
+  ggplot(corr_FFD_2017,aes(x=distance, y=correlation)) +
+    geom_point(aes(colour=type,shape=sig),size=2) +
+    geom_line(aes(colour=type)) + ylab(NULL)+
+    scale_x_continuous("Distance (mean of class)",limits=c(0,30),
+                       breaks=c(0,5,10,15,20,25,30)) + 
+    scale_y_continuous(limits=c(-2,1),
+                       breaks = seq(-2,1,0.5))+
+    scale_shape_manual(values=c(1,19))+
+    scale_color_manual(values=c("black","darkgrey"))+
+    geom_hline(aes(yintercept=0), colour="grey",linetype=3)+
+    my_theme()+ggtitle("2017")+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.043, p = 0.025",
+                                        x=0.1,y=0.97,hjust=0,
+                                        gp=gpar(col="black",fontsize=14,
+                                                fontfamily="serif"))))+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.015, p = 0.156",
+                                        x=0.1,y=0.92,hjust=0,
+                                        gp=gpar(col="darkgrey",fontsize=14,
+                                                fontfamily="serif")))),
+  ggplot(corr_FFD_2018,aes(x=distance, y=correlation)) +
+    geom_point(aes(colour=type,shape=sig),size=2) +
+    geom_line(aes(colour=type)) + ylab(NULL)+
+    scale_x_continuous("Distance (mean of class)",limits=c(0,30),
+                       breaks=c(0,5,10,15,20,25,30)) + 
+    scale_y_continuous(limits=c(-2,1),
+                       breaks = seq(-2,1,0.5))+
+    scale_shape_manual(values=c(1,19))+
+    scale_color_manual(values=c("black","darkgrey"))+
+    geom_hline(aes(yintercept=0), colour="grey",linetype=3)+
+    my_theme()+ggtitle("2018")+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.083, p = 0.043",
+                                        x=0.1,y=0.97,hjust=0,
+                                        gp=gpar(col="black",fontsize=14,
+                                                fontfamily="serif"))))+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.029, p = 0.213",
+                                        x=0.1,y=0.92,hjust=0,
+                                        gp=gpar(col="darkgrey",fontsize=14,
+                                                fontfamily="serif")))),
+  ncol=2,left=textGrob("Correlation (Moran's I)",just="center",
+                      hjust=0.42,
+                      gp=gpar(fontsize=16,fontfamily="serif"),
+                      rot = 90))
+
+ggsave(filename="output/figures/AppS6_FigS1.tiff",
+       plot=AppS6_FigS1,device="tiff",width=28,height=12,units="cm",dpi=300,
+       compression="lzw")
+```
+
+## Hypothesis 2
+
+```{r}
+fitness_2017<-glm.nb(n_seed_round~temp+log(nfl),
+                      subset(data_plants,year==2017)) 
+fitness_2018<-glm.nb(n_seed_round~temp+log(nfl),
+                      subset(data_plants,year==2018)) 
+# No quadratic terms of temperature because they were 
+# non-significant in both models
+summ(fitness_2017,vif=T)
+summ(fitness_2018,vif=T)
+```
+
+### Spatial correlograms
+
+```{r}
+res_fitness_2017<-residuals(fitness_2017) 
+res_fitness_2018<-residuals(fitness_2018)
+```
+
+```{r}
+correlog_fitness_2017 <- correlog(x=subset(data_plants,year==2017)$x,
+                            y=subset(data_plants,year==2017)$y,
+                            res_fitness_2017,increment=1, resamp=100,quiet=F) 
+correlog_fitness_2018 <- correlog(x=subset(data_plants,year==2018)$x,
+                            y=subset(data_plants,year==2018)$y,
+                            res_fitness_2018,increment=1, resamp=100,quiet=F)
+```
+
+```{r}
+plot(correlog_fitness_2017)
+plot(correlog_fitness_2018)
+```
+
+### Moran's I
+
+Calculation of global Moran's I with a permutation test (1000 random permutations), based on a connectivity matrix of pairwise Euclidean distances among the plants up to a distance of 30 m. 
+
+```{r}
+moran_fitness_2017<- moran.mc(res_fitness_2017,
+                              listw=data_plants.listw_2017,nsim=999)
+moran_fitness_2018<- moran.mc(res_fitness_2018,
+                              listw=data_plants.listw_2018,nsim=999) 
+```
+
+```{r}
+moran_fitness_2017 # Significant autocorrelation in the residuals
+moran_fitness_2018 # No significant autocorrelation in the residuals
+```
+
+### Moran's eigenvector mapping
+
+```{r}
+ME.fitness_2017 <-ME(fitness_2017,listw=data_plants.listw_2017,
+               data=subset(data_plants,year==2017),
+               alpha=0.1,verbose=T) 
+```
+
+```{r}
+vector1_2017_fitness<-ME.fitness_2017$vectors[,1]
+vector2_2017_fitness<-ME.fitness_2017$vectors[,2]
+
+fitness_2017_ME<-glm.nb(n_seed_round~temp+log(nfl)+
+                          vector1_2017_fitness+vector2_2017_fitness,
+                        subset(data_plants,year==2017)) 
+summ(fitness_2017_ME)
+```
+
+#### Tests of residual spatial autocorrelation
+
+##### Spatial correlograms
+
+```{r}
+res_fitness_2017_ME<-residuals(fitness_2017_ME) 
+```
+
+```{r}
+correlog_fitness_2017_ME <- correlog(x=subset(data_plants,year==2017)$x,
+                            y=subset(data_plants,year==2017)$y,
+                            res_fitness_2017_ME,increment=1, resamp=100,quiet=F)
+```
+
+```{r}
+plot(correlog_fitness_2017_ME)
+```
+
+##### Moran's I
+
+Calculation of global Moran's I with a permutation test (1000 random permutations), based on a connectivity matrix of pairwise Euclidean distances among the plants up to a distance of 30 m. 
+
+```{r}
+moran_fitness_2017_ME<- moran.mc(res_fitness_2017_ME,
+                                 listw=data_plants.listw_2017,nsim=999)
+```
+
+```{r}
+moran_fitness_2017_ME # STILL significant autocorrelation in the residuals
+```
+
+### AppS6 - Figure S2
+
+```{r}
+# fitness_2017
+corr_fitness_2017<-data.frame(cbind(distance=
+                                as.vector(correlog_fitness_2017$mean.of.class[1:31]), 
+                      correlation=as.vector(correlog_fitness_2017$correlation[1:31]),
+                      p=as.vector(correlog_fitness_2017$p[1:31])))
+corr_fitness_2017_ME<-data.frame(cbind(distance=
+                                   as.vector(
+                                     correlog_fitness_2017_ME$mean.of.class[1:31]),
+                                 correlation=
+                                   as.vector(correlog_fitness_2017_ME$correlation[1:31]),
+                                  p=as.vector(correlog_fitness_2017_ME$p[1:31])))
+corr_fitness_2017$type<-"fitness_2017"
+corr_fitness_2017_ME$type<-"fitness_2017_ME"
+corr_fitness_2017<-rbind(corr_fitness_2017,corr_fitness_2017_ME)
+corr_fitness_2017$sig<-as.factor(ifelse(corr_fitness_2017$p<0.05,1,0))
+
+# fitness_2018
+corr_fitness_2018<-data.frame(cbind(distance=
+                                as.vector(correlog_fitness_2018$mean.of.class[1:31]), 
+                      correlation=as.vector(correlog_fitness_2018$correlation[1:31]),
+                      p=as.vector(correlog_fitness_2018$p[1:31])))
+corr_fitness_2018$sig<-as.factor(ifelse(corr_fitness_2018$p<0.05,1,0))
+```
+
+```{r}
+AppS6_FigS2<-grid.arrange(
+  ggplot(corr_fitness_2017,aes(x=distance, y=correlation)) +
+    geom_point(aes(colour=type,shape=sig),size=2) +
+    geom_line(aes(colour=type)) + ylab(NULL)+
+    scale_x_continuous("Distance (mean of class)",limits=c(0,30),
+                       breaks=c(0,5,10,15,20,25,30)) + 
+    scale_y_continuous(limits=c(-2,1),
+                       breaks = seq(-2,1,0.5))+
+    scale_shape_manual(values=c(1,19))+
+    scale_color_manual(values=c("black","darkgrey"))+
+    geom_hline(aes(yintercept=0), colour="grey",linetype=3)+
+    my_theme()+ggtitle("2017")+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.122, p = 0.001",
+                                        x=0.1,y=0.97,hjust=0,
+                                        gp=gpar(col="black",fontsize=14,
+                                                fontfamily="serif"))))+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.099, p = 0.001",
+                                        x=0.1,y=0.92,hjust=0,
+                                        gp=gpar(col="darkgrey",fontsize=14,
+                                                fontfamily="serif")))),
+  ggplot(corr_fitness_2018,aes(x=distance, y=correlation)) +
+    geom_point(aes(shape=sig),size=2,color="black") +
+    geom_line(color="black") + ylab(NULL)+
+    scale_x_continuous("Distance (mean of class)",limits=c(0,30),
+                       breaks=c(0,5,10,15,20,25,30)) + 
+    scale_y_continuous(limits=c(-2,1),
+                       breaks = seq(-2,1,0.5))+
+    scale_shape_manual(values=c(1,19))+
+    geom_hline(aes(yintercept=0), colour="grey",linetype=3)+
+    my_theme()+ggtitle("2018")+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.054, p = 0.109",
+                                        x=0.1,y=0.97,hjust=0,
+                                        gp=gpar(col="black",fontsize=14,
+                                                fontfamily="serif")))),
+  ncol=2,left=textGrob("Correlation (Moran's I)",just="center",
+                      hjust=0.42,
+                      gp=gpar(fontsize=16,fontfamily="serif"),
+                      rot = 90))
+
+ggsave(filename="output/figures/AppS6_FigS2.tiff",
+       plot=AppS6_FigS2,device="tiff",width=28,height=12,units="cm",dpi=300,
+       compression="lzw")
+```
+
+## Hypothesis 3
+
+```{r}
+selection_2017<-lm(nseed_rel~ffd_std*temp+nfl_std,
+                     subset(data_plants,year==2017))
+selection_2018<-lm(nseed_rel~ffd_std*temp+nfl_std,
+                     subset(data_plants,year==2018))
+summ(selection_2017,vif=T)
+summ(selection_2018,vif=T)
+```
+
+### BCA intervals
+
+Used for assessing significance.
+
+#### 2017
+
+```{r echo=TRUE}
+# ffd
+slp <- function(selection_2017) coef(selection_2017)[2]
+b <- car::Boot(selection_2017,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# temp
+slp <- function(selection_2017) coef(selection_2017)[3]
+b <- car::Boot(selection_2017,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# nfl
+slp <- function(selection_2017) coef(selection_2017)[4]
+b <- car::Boot(selection_2017,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:temp
+slp <- function(selection_2017) coef(selection_2017)[5]
+b <- car::Boot(selection_2017,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# Save confidence intervals as a table
+BCIs_selection_2017 <- cbind(
+  rbind(ffd_ci_17[1,] ,temp_ci_17[1,], nfl_ci_17[1,],
+        ffd_temp_ci_17[1,]),
+  rbind(ffd_ci_17[2,] ,temp_ci_17[2,], nfl_ci_17[2,],
+        ffd_temp_ci_17[2,])
+)
+colnames(BCIs_selection_2017)<-c("lower","upper")
+rownames(BCIs_selection_2017) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2017,file="output/BCIs_selection_2017.RData")
+```
+
+```{r}
+BCIs_selection_2017
+```
+
+#### 2018
+
+```{r echo=TRUE}
+# ffd
+slp <- function(selection_2018) coef(selection_2018)[2]
+b <- car::Boot(selection_2018,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# temp
+slp <- function(selection_2018) coef(selection_2018)[3]
+b <- car::Boot(selection_2018,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# nfl
+slp <- function(selection_2018) coef(selection_2018)[4]
+b <- car::Boot(selection_2018,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:temp
+slp <- function(selection_2018) coef(selection_2018)[5]
+b <- car::Boot(selection_2018,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# Save confidence intervals as a table
+BCIs_selection_2018 <- cbind(
+  rbind(ffd_ci_17[1,] ,temp_ci_17[1,], nfl_ci_17[1,],
+        ffd_temp_ci_17[1,]),
+  rbind(ffd_ci_17[2,] ,temp_ci_17[2,], nfl_ci_17[2,],
+        ffd_temp_ci_17[2,])
+)
+colnames(BCIs_selection_2018)<-c("lower","upper")
+rownames(BCIs_selection_2018) <- c("ffd","temp","nfl","ffd:temp")
+save(BCIs_selection_2018,file="output/BCIs_selection_2018.RData")
+```
+
+```{r}
+BCIs_selection_2018
+```
+
+### Spatial correlograms
+
+```{r}
+res_selection_2017<-residuals(selection_2017) 
+res_selection_2018<-residuals(selection_2018)
+```
+
+```{r}
+correlog_selection_2017 <- correlog(x=subset(data_plants,year==2017)$x,
+                            y=subset(data_plants,year==2017)$y,
+                            res_selection_2017,increment=1, resamp=100,quiet=F) 
+correlog_selection_2018 <- correlog(x=subset(data_plants,year==2018)$x,
+                            y=subset(data_plants,year==2018)$y,
+                            res_selection_2018,increment=1, resamp=100,quiet=F)
+```
+
+```{r}
+plot(correlog_selection_2017)
+plot(correlog_selection_2018)
+```
+
+### Moran's I
+
+Calculation of global Moran's I with a permutation test (1000 random permutations), based on a connectivity matrix of pairwise Euclidean distances among the plants up to a distance of 30 m. 
+
+```{r}
+moran_selection_2017<- moran.mc(res_selection_2017,
+                              listw=data_plants.listw_2017,nsim=999)
+moran_selection_2018<- moran.mc(res_selection_2018,
+                              listw=data_plants.listw_2018,nsim=999) 
+```
+
+```{r}
+moran_selection_2017 # Significant autocorrelation in the residuals
+moran_selection_2018 # No significant autocorrelation in the residuals
+```
+
+### Moran's eigenvector mapping
+
+```{r}
+ME.selection_2017 <-ME(selection_2017,listw=data_plants.listw_2017,
+               data=subset(data_plants,year==2017),
+               alpha=0.05,verbose=T) 
+```
+
+```{r}
+vector1_2017_selection<-ME.selection_2017$vectors[,1]
+vector2_2017_selection<-ME.selection_2017$vectors[,2]
+
+selection_2017_ME<-lm(nseed_rel~ffd_std*temp+nfl_std+
+                        vector1_2017_selection+vector2_2017_selection,
+                     subset(data_plants,year==2017))
+summ(selection_2017_ME)
+```
+
+#### BCA intervals
+
+Used for assessing significance.
+
+##### 2017
+
+```{r echo=TRUE}
+# ffd
+slp <- function(selection_2017_ME) coef(selection_2017_ME)[2]
+b <- car::Boot(selection_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# temp
+slp <- function(selection_2017_ME) coef(selection_2017_ME)[3]
+b <- car::Boot(selection_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# nfl
+slp <- function(selection_2017_ME) coef(selection_2017_ME)[4]
+b <- car::Boot(selection_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# vector1
+slp <- function(selection_2017_ME) coef(selection_2017_ME)[5]
+b <- car::Boot(selection_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+vector1_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# vector2
+slp <- function(selection_2017_ME) coef(selection_2017_ME)[6]
+b <- car::Boot(selection_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+vector2_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:temp
+slp <- function(selection_2017_ME) coef(selection_2017_ME)[7]
+b <- car::Boot(selection_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# Save confidence intervals as a table
+BCIs_selection_2017_ME <- cbind(
+  rbind(ffd_ci_17[1,] ,temp_ci_17[1,], nfl_ci_17[1,],vector1_ci_17[1,],
+        vector2_ci_17[1,],ffd_temp_ci_17[1,]),
+  rbind(ffd_ci_17[2,] ,temp_ci_17[2,], nfl_ci_17[2,],vector1_ci_17[2,],
+        vector2_ci_17[2,],ffd_temp_ci_17[2,])
+)
+colnames(BCIs_selection_2017_ME)<-c("lower","upper")
+rownames(BCIs_selection_2017_ME) <- c("ffd","temp","nfl",
+                                      "vector1","vector2","ffd:temp")
+save(BCIs_selection_2017_ME,file="output/BCIs_selection_2017_ME.RData")
+```
+
+```{r}
+BCIs_selection_2017_ME
+```
+
+#### Tests of residual spatial autocorrelation
+
+##### Spatial correlograms
+
+```{r}
+res_selection_2017_ME<-residuals(selection_2017_ME) 
+```
+
+```{r}
+correlog_selection_2017_ME <- correlog(x=subset(data_plants,year==2017)$x,
+                            y=subset(data_plants,year==2017)$y,
+                            res_selection_2017_ME,increment=1, resamp=100,quiet=F)
+```
+
+```{r}
+plot(correlog_selection_2017_ME)
+```
+
+##### Moran's I
+
+Calculation of global Moran's I with a permutation test (1000 random permutations), based on a connectivity matrix of pairwise Euclidean distances among the plants up to a distance of 30 m. 
+
+```{r}
+res_selection_2017_ME<-residuals(selection_2017_ME)
+moran_selection_2017_ME<- moran.mc(res_selection_2017_ME,
+                                 listw=data_plants.listw_2017,nsim=999)
+```
+
+```{r}
+moran_selection_2017_ME # No significant autocorrelation in the residuals
+```
+
+### App S6 - Figure S3
+
+```{r}
+# selection_2017
+corr_selection_2017<-data.frame(cbind(distance=
+                                as.vector(correlog_selection_2017$mean.of.class[1:31]), 
+                      correlation=as.vector(correlog_selection_2017$correlation[1:31]),
+                      p=as.vector(correlog_selection_2017$p[1:31])))
+corr_selection_2017_ME<-data.frame(cbind(distance=
+                                   as.vector(
+                                     correlog_selection_2017_ME$mean.of.class[1:31]),
+                                 correlation=
+                                   as.vector(correlog_selection_2017_ME$correlation[1:31]),
+                                  p=as.vector(correlog_selection_2017_ME$p[1:31])))
+corr_selection_2017$type<-"selection_2017"
+corr_selection_2017_ME$type<-"selection_2017_ME"
+corr_selection_2017<-rbind(corr_selection_2017,corr_selection_2017_ME)
+corr_selection_2017$sig<-as.factor(ifelse(corr_selection_2017$p<0.05,1,0))
+
+# selection_2018
+corr_selection_2018<-data.frame(cbind(distance=
+                                as.vector(correlog_selection_2018$mean.of.class[1:31]), 
+                      correlation=as.vector(correlog_selection_2018$correlation[1:31]),
+                      p=as.vector(correlog_selection_2018$p[1:31])))
+corr_selection_2018$sig<-as.factor(ifelse(corr_selection_2018$p<0.05,1,0))
+```
+
+```{r}
+AppS6_FigS3<-grid.arrange(
+  ggplot(corr_selection_2017,aes(x=distance, y=correlation)) +
+    geom_point(aes(colour=type,shape=sig),size=2) +
+    geom_line(aes(colour=type)) + ylab(NULL)+
+    scale_x_continuous("Distance (mean of class)",limits=c(0,30),
+                       breaks=c(0,5,10,15,20,25,30)) + 
+    scale_y_continuous(limits=c(-2,1),
+                       breaks = seq(-2,1,0.5))+
+    scale_shape_manual(values=c(1,19))+
+    scale_color_manual(values=c("black","darkgrey"))+
+    geom_hline(aes(yintercept=0), colour="grey",linetype=3)+
+    my_theme()+ggtitle("2017")+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.098, p = 0.001",
+                                        x=0.1,y=0.97,hjust=0,
+                                        gp=gpar(col="black",fontsize=14,
+                                                fontfamily="serif"))))+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.019, p = 0.124",
+                                        x=0.1,y=0.92,hjust=0,
+                                        gp=gpar(col="darkgrey",fontsize=14,
+                                                fontfamily="serif")))),
+  ggplot(corr_selection_2018,aes(x=distance, y=correlation)) +
+    geom_point(aes(shape=sig),size=2,color="black") +
+    geom_line(color="black") + ylab(NULL)+
+    scale_x_continuous("Distance (mean of class)",limits=c(0,30),
+                       breaks=c(0,5,10,15,20,25,30)) + 
+    scale_y_continuous(limits=c(-2,1),
+                       breaks = seq(-2,1,0.5))+
+    scale_shape_manual(values=c(1,19))+
+    geom_hline(aes(yintercept=0), colour="grey",linetype=3)+
+    my_theme()+ggtitle("2018")+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.025, p = 0.228",
+                                        x=0.1,y=0.97,hjust=0,
+                                        gp=gpar(col="black",fontsize=14,
+                                                fontfamily="serif")))),
+  ncol=2,left=textGrob("Correlation (Moran's I)",just="center",
+                      hjust=0.42,
+                      gp=gpar(fontsize=16,fontfamily="serif"),
+                      rot = 90))
+
+ggsave(filename="output/figures/AppS6_FigS3.tiff",
+       plot=AppS6_FigS3,device="tiff",width=28,height=12,units="cm",dpi=300,
+       compression="lzw")
+```
+
+## Effect of temperature on the relationship absolute fitness-FFD
+
+### Spatial correlograms
+
+```{r}
+res_selectionabs_2017<-residuals(selectionabs_2017_2) 
+res_selectionabs_2018<-residuals(selectionabs_2018_2)
+```
+
+```{r}
+correlog_selectionabs_2017 <- correlog(x=subset(data_plants,year==2017)$x,
+                            y=subset(data_plants,year==2017)$y,
+                            res_selectionabs_2017,increment=1, resamp=100,
+                            quiet=F) 
+correlog_selectionabs_2018 <- correlog(x=subset(data_plants,year==2018)$x,
+                            y=subset(data_plants,year==2018)$y,
+                            res_selectionabs_2018,increment=1, resamp=100,quiet=F)
+```
+
+
+```{r}
+plot(correlog_selectionabs_2017)
+plot(correlog_selectionabs_2018)
+```
+
+### Moran's I
+
+Calculation of global Moran's I with a permutation test (1000 random permutations), based on a connectivity matrix of pairwise Euclidean distances among the plants up to a distance of 30 m. 
+
+```{r}
+moran_selectionabs_2017<- moran.mc(res_selectionabs_2017,
+                              listw=data_plants.listw_2017,nsim=999)
+moran_selectionabs_2018<- moran.mc(res_selectionabs_2018,
+                              listw=data_plants.listw_2018,nsim=999) 
+```
+
+```{r}
+moran_selectionabs_2017 # Significant autocorrelation in the residuals
+moran_selectionabs_2018 # No significant autocorrelation in the residuals
+```
+
+### Moran's eigenvector mapping
+
+```{r}
+ME.selectionabs_2017 <-ME(selectionabs_2017_2,listw=data_plants.listw_2017,
+               data=subset(data_plants,year==2017),
+               alpha=0.05,verbose=T) 
+```
+
+```{r}
+vector1_2017_selectionabs<-ME.selectionabs_2017$vectors[,1]
+vector2_2017_selectionabs<-ME.selectionabs_2017$vectors[,2]
+
+selectionabs_2017_ME<-lm(nseed~ffd*temp+nfl+
+                        vector1_2017_selectionabs+vector2_2017_selectionabs,
+                     subset(data_plants,year==2017))
+summ(selectionabs_2017_ME)
+```
+
+#### BCA intervals
+
+Used for assessing significance.
+
+##### 2017
+
+```{r echo=TRUE}
+# ffd
+slp <- function(selectionabs_2017_ME) coef(selectionabs_2017_ME)[2]
+b <- car::Boot(selectionabs_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# temp
+slp <- function(selectionabs_2017_ME) coef(selectionabs_2017_ME)[3]
+b <- car::Boot(selectionabs_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# nfl
+slp <- function(selectionabs_2017_ME) coef(selectionabs_2017_ME)[4]
+b <- car::Boot(selectionabs_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+nfl_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# vector1
+slp <- function(selectionabs_2017_ME) coef(selectionabs_2017_ME)[5]
+b <- car::Boot(selectionabs_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+vector1_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# vector2
+slp <- function(selectionabs_2017_ME) coef(selectionabs_2017_ME)[6]
+b <- car::Boot(selectionabs_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+vector2_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# ffd:temp
+slp <- function(selectionabs_2017_ME) coef(selectionabs_2017_ME)[7]
+b <- car::Boot(selectionabs_2017_ME,slp, R=10000) # note the capital B
+b1 <- boot::boot.ci(b,type="bca")
+ffd_temp_ci_17 <- as.data.frame(b1$bca[1,4:5])
+rm(slp, b, b1)
+```
+
+```{r echo=TRUE}
+# Save confidence intervals as a table
+BCIs_selectionabs_2017_ME <- cbind(
+  rbind(ffd_ci_17[1,] ,temp_ci_17[1,], nfl_ci_17[1,],vector1_ci_17[1,],
+        vector2_ci_17[1,],ffd_temp_ci_17[1,]),
+  rbind(ffd_ci_17[2,] ,temp_ci_17[2,], nfl_ci_17[2,],vector1_ci_17[2,],
+        vector2_ci_17[2,],ffd_temp_ci_17[2,])
+)
+colnames(BCIs_selectionabs_2017_ME)<-c("lower","upper")
+rownames(BCIs_selectionabs_2017_ME) <- c("ffd","temp","nfl",
+                                      "vector1","vector2","ffd:temp")
+save(BCIs_selectionabs_2017_ME,file="output/BCIs_selectionabs_2017_ME.RData")
+```
+
+```{r}
+BCIs_selectionabs_2017_ME
+```
+
+#### Tests of residual spatial autocorrelation
+
+##### Spatial correlograms
+
+```{r}
+res_selectionabs_2017_ME<-residuals(selectionabs_2017_ME) 
+```
+
+```{r}
+correlog_selectionabs_2017_ME <- correlog(x=subset(data_plants,year==2017)$x,
+                            y=subset(data_plants,year==2017)$y,
+                            res_selectionabs_2017_ME,increment=1, resamp=100,quiet=F)
+```
+
+```{r}
+plot(correlog_selectionabs_2017_ME)
+```
+
+##### Moran's I
+
+Calculation of global Moran's I with a permutation test (1000 random permutations), based on a connectivity matrix of pairwise Euclidean distances among the plants up to a distance of 30 m. 
+
+```{r}
+moran_selectionabs_2017_ME<- moran.mc(res_selectionabs_2017_ME,
+                                 listw=data_plants.listw_2017,nsim=999)
+```
+
+```{r}
+moran_selectionabs_2017_ME # Still significant autocorrelation in the residuals
+```
+
+### AppS6 - Figure S4
+
+```{r}
+# selectionabs_2017
+corr_selectionabs_2017<-data.frame(cbind(distance=
+                                as.vector(correlog_selectionabs_2017$mean.of.class[1:31]), 
+                      correlation=as.vector(correlog_selectionabs_2017$correlation[1:31]),
+                      p=as.vector(correlog_selectionabs_2017$p[1:31])))
+corr_selectionabs_2017_ME<-data.frame(cbind(distance=
+                                   as.vector(
+                                     correlog_selectionabs_2017_ME$mean.of.class[1:31]),
+                                 correlation=
+                                   as.vector(correlog_selectionabs_2017_ME$correlation[1:31]),
+                                  p=as.vector(correlog_selectionabs_2017_ME$p[1:31])))
+corr_selectionabs_2017$type<-"selectionabs_2017"
+corr_selectionabs_2017_ME$type<-"selectionabs_2017_ME"
+corr_selectionabs_2017<-rbind(corr_selectionabs_2017,corr_selectionabs_2017_ME)
+corr_selectionabs_2017$sig<-as.factor(ifelse(corr_selectionabs_2017$p<0.05,1,0))
+
+# selectionabs_2018
+corr_selectionabs_2018<-data.frame(cbind(distance=
+                                as.vector(correlog_selectionabs_2018$mean.of.class[1:31]), 
+                      correlation=as.vector(correlog_selectionabs_2018$correlation[1:31]),
+                      p=as.vector(correlog_selectionabs_2018$p[1:31])))
+corr_selectionabs_2018$sig<-as.factor(ifelse(corr_selectionabs_2018$p<0.05,1,0))
+```
+
+```{r}
+AppS6_FigS4<-grid.arrange(
+  ggplot(corr_selectionabs_2017,aes(x=distance, y=correlation)) +
+    geom_point(aes(colour=type,shape=sig),size=2) +
+    geom_line(aes(colour=type)) + ylab(NULL)+
+    scale_x_continuous("Distance (mean of class)",limits=c(0,30),
+                       breaks=c(0,5,10,15,20,25,30)) + 
+    scale_y_continuous(limits=c(-2,1),
+                       breaks = seq(-2,1,0.5))+
+    scale_shape_manual(values=c(1,19))+
+    scale_color_manual(values=c("black","darkgrey"))+
+    geom_hline(aes(yintercept=0), colour="grey",linetype=3)+
+    my_theme()+ggtitle("2017")+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.098, p = 0.001",
+                                        x=0.1,y=0.97,hjust=0,
+                                        gp=gpar(col="black",fontsize=14,
+                                                fontfamily="serif"))))+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.065, p = 0.001",
+                                        x=0.1,y=0.92,hjust=0,
+                                        gp=gpar(col="darkgrey",fontsize=14,
+                                                fontfamily="serif")))),
+  ggplot(corr_selectionabs_2018,aes(x=distance, y=correlation)) +
+    geom_point(aes(shape=sig),size=2,color="black") +
+    geom_line(color="black") + ylab(NULL)+
+    scale_x_continuous("Distance (mean of class)",limits=c(0,30),
+                       breaks=c(0,5,10,15,20,25,30)) + 
+    scale_y_continuous(limits=c(-2,1),
+                       breaks = seq(-2,1,0.5))+
+    scale_shape_manual(values=c(1,19))+
+    geom_hline(aes(yintercept=0), colour="grey",linetype=3)+
+    my_theme()+ggtitle("2018")+
+    annotation_custom(grobTree(textGrob("Global Moran's I = 0.025, p = 0.228",
+                                        x=0.1,y=0.97,hjust=0,
+                                        gp=gpar(col="black",fontsize=14,
+                                                fontfamily="serif")))),
+  ncol=2,left=textGrob("Correlation (Moran's I)",just="center",
+                      hjust=0.42,
+                      gp=gpar(fontsize=16,fontfamily="serif"),
+                      rot = 90))
+
+ggsave(filename="output/figures/AppS6_FigS4.tiff",
+       plot=AppS6_FigS4,device="tiff",width=28,height=12,units="cm",dpi=300,
+       compression="lzw")
+```
+
+# R Session Info
+
+```{r}
+sessionInfo()
+```
+
