@@ -65,8 +65,8 @@ my_theme_legend <- function(){
 set_summ_defaults(digits = 3)
 ```
 
-
 ```{r load previously created output}
+# this can be created and saved
 load(file="output/BCIs_selection_1.RData")
 load(file="output/BCIs_selection_2017.RData")
 load(file="output/BCIs_selection_2018.RData")

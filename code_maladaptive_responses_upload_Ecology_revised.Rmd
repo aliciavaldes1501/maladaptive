@@ -28,7 +28,6 @@ library(ggpubr)
 library(kableExtra)
 library(ggeffects)
 library(MuMIn)
-library(MASS)
 library(segmented)
 library(effects)
 library(purrr)
@@ -46,6 +45,9 @@ library(spdep)
 library(spatialreg)
 library(jtools)
 library(readxl)
+library(glmmTMB)
+library(lme4)
+library(lmerTest)
 ```
 
 ```{r Define ggplot themes and palettes, include=FALSE}
@@ -65,8 +67,8 @@ my_theme_legend <- function(){
 set_summ_defaults(digits = 3)
 ```
 
-
 ```{r load previously created output}
+# this can be created and saved
 load(file="output/BCIs_selection_1.RData")
 load(file="output/BCIs_selection_2017.RData")
 load(file="output/BCIs_selection_2018.RData")
@@ -77,6 +79,7 @@ load(file="output/BCIs_selectionabs_2017_ME.RData")
 load(file="output/BCIs_selection_2017_withoutnfl.RData")
 load(file="output/BCIs_selection_2018_withoutnfl.RData")
 load(file="output/BCIs_selection_2017_withoutnfl_ME.RData")
+load(file="output/b_par.RData")
 ```
 
 # Read data
@@ -574,17 +577,19 @@ Linear models testing the effect of soil temperature on correlations between soi
 
 Models including quadratic effects of ffd.
 
+id_original included as a random factor to account for repeated measures (69 individuals were common to both study years).
+
 ```{r echo=TRUE}
 data_plants$year_fct<-as.factor(data_plants$year)
-FFD_1<-lm(ffd~(temp+I(temp^2))*year_fct,data_plants)
-summ(FFD_1,vif=T)
+FFD_1<-glmmTMB(ffd~(temp+I(temp^2))*year_fct+(1|id_original),data_plants)
+summary(FFD_1)
 ```
 
 Quadratic terms of temp not significant. Refit models without quadratic terms of temp.
 
 ```{r echo=TRUE}
-FFD_1<-lm(ffd~temp*year_fct,data_plants)
-summ(FFD_1,vif=T)
+FFD_1<-glmmTMB(ffd~temp*year_fct+(1|id_original),data_plants)
+summary(FFD_1)
 ```
 
 Interaction temp*year significant, fit separate models for each year.
@@ -612,43 +617,32 @@ ggpredict(FFD_2018,terms=c("temp[3.5,34.0]"))
 
 ## Models both years
 
-```{r echo=TRUE}
-fitness_1<-glm.nb(n_seed_round~(temp+I(temp^2))*year_fct+log(nfl),
-                      data_plants) # Quadratic term significant, keep
-summ(fitness_1,vif=T)
-```
+Models including quadratic effects of ffd.
 
-Interaction temp*year and temp2*year significant, fit separate models for each year.
-
-## Yearly models
+id_original included as a random factor to account for repeated measures (69 individuals were common to both study years).
 
 ```{r echo=TRUE}
-fitness_2017<-glm.nb(n_seed_round~temp+I(temp^2)+log(nfl),
-                     subset(data_plants,year==2017))
-fitness_2018<-glm.nb(n_seed_round~temp+I(temp^2)+log(nfl),
-                     subset(data_plants,year==2018))
-summ(fitness_2017,vif=T)
-summ(fitness_2018,vif=T)
+fitness_1<-glmmTMB(n_seed_round~(temp+I(temp^2))*year_fct+log(nfl)+
+                      (1|id_original),data_plants,family="nbinom2")
+summary(fitness_1)
 ```
 
 Quadratic terms of temp not significant. Refit models without quadratic terms of temp.
 
 ```{r echo=TRUE}
-fitness_2017<-glm.nb(n_seed_round~temp+log(nfl),
-                     subset(data_plants,year==2017))
-fitness_2018<-glm.nb(n_seed_round~temp+log(nfl),
-                     subset(data_plants,year==2018))
-summ(fitness_2017,vif=T)
-summ(fitness_2018,vif=T)
+data_plants$n_fl_log<-log(data_plants$nfl)
+fitness_1<-glmmTMB(n_seed_round~temp*year_fct+n_fl_log+
+                      (1|id_original),data_plants,family="nbinom2")
+summary(fitness_1)
 ```
 
-Predictions of fitness for minimum and maximum temperatures (based on yearly models):
+Interaction year × soil temperature not significant. No need to fit separate models for each year.
+
+Predictions of fitness for minimum and maximum temperatures:
 
 ```{r}
-range(subset(data_plants,year==2017)$temp)
-range(subset(data_plants,year==2018)$temp)
-ggpredict(fitness_2017,terms=c("temp[4.1,45.5]"))
-ggpredict(fitness_2018,terms=c("temp[3.5,34.0]"))
+range(data_plants$temp)
+ggpredict(fitness_1,terms=c("temp[3.5,45.5]"))
 ```
 
 # Figure 2: Effects of temperature on ffd and fitness
@@ -666,17 +660,10 @@ predict_FFD_years<-rbind(data.frame(predict_FFD_2017)%>%
                            dplyr::select(-group))
 ```
 
-Model prediction fitness : based on yearly models
+Model prediction fitness : based on global model
 
 ```{r}
-predict_fitness_2017<-ggpredict(fitness_2017,terms=c("temp [all]"))
-predict_fitness_2018<-ggpredict(fitness_2018,terms=c("temp [all]"))
-predict_fitness_years<-rbind(data.frame(predict_fitness_2017)%>%
-                           mutate(year=as.factor(2017))%>%
-                           dplyr::select(-group),
-                         data.frame(predict_FFD_2018)%>%
-                           mutate(year=as.factor(2018))%>%
-                           dplyr::select(-group))
+predict_fitness<-ggpredict(fitness_1,terms=c("temp [all]"))
 ```
 
 ```{r fig.height=3, fig.width=8, message=FALSE, warning=FALSE}
@@ -709,11 +696,11 @@ fig2<-
       xlab("Soil temperature (ºC)")+ylab("Fitness\n(number of seeds)")+
       geom_point(data=data.frame(data_plants),
                  aes(x=temp,y=nseed,color=year_fct),size=2,alpha=0.2)+
-      geom_ribbon(data=predict_fitness_years,
-                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high,fill=year),
+      geom_ribbon(data=predict_fitness,
+                  aes(x=x,y=predicted,ymin=conf.low,ymax=conf.high),
                   alpha=0.5)+
-      geom_line(data=predict_fitness_years,
-                aes(x=x,y=predicted,color=year),size=1)+
+      geom_line(data=predict_fitness,
+                aes(x=x,y=predicted),size=1)+
       ggtitle("B)")+theme(plot.title=element_text(hjust=-0.35,vjust=-4))+
       theme(plot.margin = unit(c(-0.6,0.3,0,0.3), "cm"))+
       scale_fill_manual(values=cbPalette)+scale_color_manual(values=cbPalette)+
@@ -731,113 +718,38 @@ ggsave(filename="output/figures/fig2.tiff",plot=fig2legend,
 Models including quadratic effects of temp.
 
 ```{r echo=TRUE}
-selection_1<-lm(nseed_rel~ffd_std*(temp+I(temp^2))*year_fct+nfl_std,
-                     data_plants)
-summ(selection_1,vif=T)
+selection_1<-glmmTMB(nseed_rel~ffd_std*(temp+I(temp^2))*year_fct+nfl_std+
+                       (1|id_original),data_plants)
+summary(selection_1)
 ```
 
 Quadratic terms of temp not significant. Refit models without quadratic terms of temp
 
 ```{r echo=TRUE}
-selection_1<-lm(nseed_rel~ffd_std*temp*year_fct+nfl_std,
-                     data_plants)
-summ(selection_1,vif=T)
+selection_1<-glmmTMB(nseed_rel~ffd_std*temp*year_fct+nfl_std+
+                      (1|id_original),data_plants)
+summary(selection_1)
 ```
 
-### BCa intervals
+### Bootstraped confidence intervals
 
-Used for assessing significance.
+Refit model with lmer.
 
-```{r eval=FALSE, include=FALSE}
-# ffd
-slp <- function(selection_1) coef(selection_1)[2]
-b <- car::Boot(selection_1,slp, R=10000) # note the capital B
-b1 <- boot::boot.ci(b,type="bca")
-ffd_ci <- as.data.frame(b1$bca[1,4:5])
-rm(slp, b, b1)
+```{r}
+selection_1_lmer<-lmer(nseed_rel~ffd_std*temp*year_fct+nfl_std+
+                      (1|id_original),data.frame(data_plants))
+summary(selection_1_lmer)
 ```
 
-```{r eval=FALSE, include=FALSE}
-# temp
-slp <- function(selection_1) coef(selection_1)[3]
-b <- car::Boot(selection_1,slp, R=10000) # note the capital B
-b1 <- boot::boot.ci(b,type="bca")
-temp_ci <- as.data.frame(b1$bca[1,4:5])
-rm(slp, b, b1)
-```
 
 ```{r eval=FALSE, include=FALSE}
-# year
-slp <- function(selection_1) coef(selection_1)[4]
-b <- car::Boot(selection_1,slp, R=10000) # note the capital B
-b1 <- boot::boot.ci(b,type="bca")
-year_ci <- as.data.frame(b1$bca[1,4:5])
-rm(slp, b, b1)
-```
-
-```{r eval=FALSE, include=FALSE}
-# nfl
-slp <- function(selection_1) coef(selection_1)[5]
-b <- car::Boot(selection_1,slp, R=10000) # note the capital B
-b1 <- boot::boot.ci(b,type="bca")
-nfl_ci <- as.data.frame(b1$bca[1,4:5])
-rm(slp, b, b1)
-```
-
-```{r eval=FALSE, include=FALSE}
-# ffd:temp
-slp <- function(selection_1) coef(selection_1)[6]
-b <- car::Boot(selection_1,slp, R=10000) # note the capital B
-b1 <- boot::boot.ci(b,type="bca")
-ffd_temp_ci <- as.data.frame(b1$bca[1,4:5])
-rm(slp, b, b1)
-```
-
-```{r eval=FALSE, include=FALSE}
-# ffd:year
-slp <- function(selection_1) coef(selection_1)[7]
-b <- car::Boot(selection_1,slp, R=10000) # note the capital B
-b1 <- boot::boot.ci(b,type="bca")
-ffd_year_ci <- as.data.frame(b1$bca[1,4:5])
-rm(slp, b, b1)
-```
-
-```{r eval=FALSE, include=FALSE}
-# temp:year
-slp <- function(selection_1) coef(selection_1)[8]
-b <- car::Boot(selection_1,slp, R=10000) # note the capital B
-b1 <- boot::boot.ci(b,type="bca")
-temp_year_ci <- as.data.frame(b1$bca[1,4:5])
-rm(slp, b, b1)
-```
-
-```{r eval=FALSE, include=FALSE}
-# ffd:temp:year
-slp <- function(selection_1) coef(selection_1)[9]
-b <- car::Boot(selection_1,slp, R=10000) # note the capital B
-b1 <- boot::boot.ci(b,type="bca")
-ffd_temp_year_ci <- as.data.frame(b1$bca[1,4:5])
-rm(slp, b, b1)
-```
-
-```{r eval=FALSE, include=FALSE}
-# Save confidence intervals as a table
-BCIs_selection_1 <- cbind(
-  rbind(ffd_ci[1,] ,temp_ci[1,], year_ci[1,], nfl_ci[1,], ffd_temp_ci[1,],
-        ffd_year_ci[1,],temp_year_ci[1,],ffd_temp_year_ci[1,]),
-  rbind(ffd_ci[2,] ,temp_ci[2,], year_ci[2,], nfl_ci[2,], ffd_temp_ci[2,],
-        ffd_year_ci[2,],temp_year_ci[2,],ffd_temp_year_ci[2,])
-)
-colnames(BCIs_selection_1)<-c("lower","upper")
-rownames(BCIs_selection_1) <- c("ffd","temp","year","nfl","ffd:temp",
-                                "ffd:year","temp:year","ffd:temp:year")
-save(BCIs_selection_1,file="output/BCIs_selection_1.RData")
+b_par<-bootMer(x=selection_1_lmer,FUN=fixef,nsim=10000)
+save(b_par,file="output/b_par.RData")
 ```
 
 ```{r}
-BCIs_selection_1
+confint(b_par,level=0.95, method="boot") # Percentile method
 ```
-
 Interaction ffd*temp*year significant, fit separate models for each year.
 
 ## Yearly models

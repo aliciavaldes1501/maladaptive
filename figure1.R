@@ -1,18 +1,62 @@
-x <- seq(1, 10, by = 0.05)
+# Upper panel
+
+x <- seq(-10, 10, by = 0.05)
 y1 <- log10(x)
 y2 <- log10(rev(x))
 y3 <- (y1*y2)/2
 df <- data.frame(x, y1, y2, y3)
 
+df$y4<-1/(1+(exp(-1*x)/2))
+df$y5<-1/(1+(exp(-1*rev(x))/2))
+df$y6<-with(df,(y4*y5))
+
 ggplot(df) + 
-  geom_line(aes(x,y1),color="lightgreen",size=1)+
-  geom_line(aes(x,y2),color="orange",size=1)+
-  geom_line(aes(x,y3),color="black",size=1,linetype=3)+
+  geom_line(aes(x,y4),color="lightgreen",size=1.5)+
+  geom_line(aes(x,y5),color="orange",size=1.5)+
+  geom_line(aes(x,y6),color="black",size=1.5,linetype=3)+
   my_theme()+
-  scale_y_continuous(name=NULL,breaks=seq(0,1,0.2),
-                     sec.axis=sec_axis(trans=~.*1,name=NULL,breaks=seq(0,1,0.2)))+
+  scale_y_continuous(name=NULL,breaks=seq(0,1,1),limits=c(0,1.8),
+                     sec.axis=sec_axis(trans=~.*1,name=NULL,breaks=seq(0,1,1)))+
   scale_x_continuous(labels=NULL,breaks=NULL,name=NULL)
-max(df$y3)
+
+# ggplot(df) + 
+#   geom_line(aes(x,y1),color="lightgreen",size=1)+
+#   geom_line(aes(x,y2),color="orange",size=1)+
+#   geom_line(aes(x,y3),color="black",size=1,linetype=3)+
+#   my_theme()+
+#   scale_y_continuous(name=NULL,breaks=seq(0,1,0.2),
+#                      sec.axis=sec_axis(trans=~.*1,name=NULL,breaks=seq(0,1,0.2)))+
+#   scale_x_continuous(labels=NULL,breaks=NULL,name=NULL)
+# max(df$y3)
+max(df$y6)
+
+# Lower panel
+
+x <- seq(-10, 10, by = 0.05)
+y1 <- log10(x)
+y2 <- log10(rev(x))
+y3 <- (y1*y2)/2
+df <- data.frame(x, y1, y2, y3)
+
+df$y4<-1/(1+(exp(-1*(x+6))/2))
+df$y5<-1/(1+(exp(-1*(rev(x)-6))/2))
+df$y6<-with(df,(y4*y5))
+
+ggplot(df) + 
+  geom_line(aes(x,y4),color="lightgreen",size=1.8)+
+  geom_line(aes(x,y5),color="orange",size=1.5)+
+  geom_line(aes(x,y6),color="black",size=1.5,linetype=3)+
+  my_theme()+
+  scale_y_continuous(name=NULL,breaks=seq(0,1,1),limits=c(0,1.8),
+                     sec.axis=sec_axis(trans=~.*1,name=NULL,breaks=seq(0,1,1)))+
+  scale_x_continuous(labels=NULL,breaks=NULL,name=NULL)
+max(df$y6)
+
+
+
+
+# OLD
+#########################################################
 
 x <- c(-0.05,0,0.25,0.5,1,1.4,1.75,2,2.5,3,4,5,
          6,7,8,9,10,
