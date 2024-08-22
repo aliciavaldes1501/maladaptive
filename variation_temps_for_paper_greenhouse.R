@@ -120,3 +120,39 @@ summary(lm(var_B~meansoiltemp,
                          filter(above_below=="B")%>%
                          group_by(pair)%>%
                          summarise(meansoiltemp=mean(temp)))))
+
+# Plot to use in Appendix
+
+data_var_all<-logger_data%>%
+  mutate(month = month(datetime),date=date(datetime))%>% 
+  # new variables "month" and "date"
+  filter(month==4|month==5|month==6)%>% # keep data from april-june
+  filter(above_below=="B")%>%
+    filter(!is.na(date))%>% # remove records with no info on date
+  filter(datetime<"2018-06-06")%>% # keep only data until June 5
+  group_by(logger_nr) %>%
+  summarise(mean=mean(temp,na.rm=T),var=var(temp,na.rm=T),sd=sd(temp,na.rm=T),
+            max=max(temp),min=min(temp))%>% 
+  mutate(range=max-min)
+  
+AppS8<-grid.arrange(
+  ggplot(data_var_all,aes(x=mean,y=var))+
+    xlab("Mean soil temperature (ºC)")+ylab("Soil temperature variance")+
+    geom_point()+geom_smooth(method="lm",color="black")+ggtitle("A)")+my_theme(),
+  ggplot(data_var_all,aes(x=mean,y=sd))+
+    xlab("Mean soil temperature (ºC)")+ylab("Soil temperature SD")+
+    geom_point()+geom_smooth(method="lm",color="black")+ggtitle("B)")+my_theme(),
+  ggplot(data_var_all,aes(x=mean,y=range))+
+    xlab("Mean soil temperature (ºC)")+ylab("Soil temperature range")+
+    geom_point()+geom_smooth(method="lm",color="black")+ggtitle("C)")+my_theme(),
+  ncol=3)
+AppS8
+ggsave(file=
+         "C:/Users/alici/Dropbox/SU/Projects/cerastium_greenhouse/output/figures/AppS8.tiff",
+       plot=AppS8,width=12,height=4,dpi=300,compression="lzw")
+
+# And models
+
+summary(lm(var~mean,data_var_all))
+summary(lm(sd~mean,data_var_all))
+summary(lm(range~mean,data_var_all))
